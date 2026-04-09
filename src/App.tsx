@@ -12,7 +12,7 @@ import SocialPublishing from './pages/SocialPublishing';
 
 function App() {
   return (
-    <Router basename="/custom">
+    <Router>
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/network" replace />} />

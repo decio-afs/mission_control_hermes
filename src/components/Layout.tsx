@@ -40,7 +40,7 @@ export default function Layout() {
       )}>
         <div className="h-16 flex items-center justify-between px-6 border-b border-border-subtle shrink-0">
           <div className="flex items-center gap-3 text-transparent bg-clip-text bg-gradient-to-r from-brand-start to-brand-end">
-            <img src="/custom/daos_emblem.png" alt="Mission Control" className="w-8 h-8 rounded-full shadow-[0_0_10px_rgba(246,78,110,0.4)]" />
+            <img src="/daos_emblem.png" alt="Mission Control" className="w-8 h-8 rounded-full shadow-[0_0_10px_rgba(246,78,110,0.4)]" />
             <h1 className="text-lg font-black tracking-tighter uppercase whitespace-nowrap">Mission Control</h1>
           </div>
           <button onClick={() => setMobileMenuOpen(false)} className="lg:hidden text-text-secondary hover:text-white">
