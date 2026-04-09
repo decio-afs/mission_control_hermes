@@ -1,4 +1,4 @@
-import { Database, FileText, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Database } from 'lucide-react';
 
 export default function Archives() {
   return (

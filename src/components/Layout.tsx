@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { Network, Activity, Calendar, LineChart, Cpu, Database, FileText, Radio, Menu, X } from 'lucide-react';
+import { Network, Activity, Calendar, LineChart, Cpu, FileText, Radio, Menu, X } from 'lucide-react';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { useState } from 'react';

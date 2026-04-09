@@ -27,7 +27,7 @@ interface TrendStore {
   fetchTrends: () => Promise<void>;
 }
 
-export const useTrendStore = create<TrendStore>((set, get) => ({
+export const useTrendStore = create<TrendStore>((set) => ({
   trends: [],
   isLoading: false,
 
