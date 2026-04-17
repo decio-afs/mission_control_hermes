@@ -47,19 +47,25 @@ export const useGhostStore = create<GhostStore>((set, get) => ({
     try {
       if (NOTION_DB_AGENTS && NOTION_DB_AGENTS !== '...') {
         const response = await notion.post(`/databases/${NOTION_DB_AGENTS}/query`);
-        const freshNodes: GhostNode[] = response.data.results.map((page: any) => ({
-          id: page.id,
-          name: utils.getTitle(page.properties.Name),
-          type: (utils.getSelect(page.properties.Type) || 'runner') as any,
-          model: utils.getSelect(page.properties.Model),
-          squad: utils.getSelect(page.properties.Squad),
-          val: utils.getSelect(page.properties.Type) === 'core' ? 6 : 4,
-          tasks_running: utils.getNumber(page.properties.TasksRunning),
-          queue_depth: utils.getNumber(page.properties.QueueDepth),
-          has_active_work: utils.getNumber(page.properties.TasksRunning) > 0,
-          status: (utils.getSelect(page.properties.Status)?.toLowerCase() || 'offline'),
-          last_active: utils.getDate(page.properties['Last Active'])
-        }));
+        const freshNodes: GhostNode[] = response.data.results.map((page: any) => {
+          const name = utils.getTitle(page.properties.Name);
+          const status = utils.getSelect(page.properties.Status)?.toLowerCase() || 'offline';
+          const lastActive = utils.getDate(page.properties['Last Active']);
+          
+          return {
+            id: page.id,
+            name,
+            type: (utils.getSelect(page.properties.Type) || 'runner') as any,
+            model: utils.getSelect(page.properties.Model),
+            squad: utils.getSelect(page.properties.Squad),
+            val: utils.getSelect(page.properties.Type) === 'core' ? 6 : 4,
+            tasks_running: utils.getNumber(page.properties.TasksRunning),
+            queue_depth: utils.getNumber(page.properties.QueueDepth),
+            has_active_work: utils.getNumber(page.properties.TasksRunning) > 0,
+            status,
+            last_active: lastActive
+          };
+        });
 
 
 
@@ -97,17 +103,6 @@ export const useGhostStore = create<GhostStore>((set, get) => ({
             }
           });
         }
-
-        // Debug: log the first page's properties to verify field names
-        if (response.data.results.length > 0) {
-          const firstPage = response.data.results[0];
-          console.log('[GhostStore] First page props:', Object.keys(firstPage.properties));
-          console.log('[GhostStore] First page name:', utils.getTitle(firstPage.properties.Name));
-          console.log('[GhostStore] First page type:', utils.getSelect(firstPage.properties.Type));
-          console.log('[GhostStore] First page squad:', utils.getSelect(firstPage.properties.Squad));
-        }
-
-        console.log(`[GhostStore] Fetched ${freshNodes.length} nodes from Notion`);
 
         // Always set the full fresh data — the SVG renderer is static
         // and doesn't have a physics simulation to disturb, so there's
