@@ -5,6 +5,8 @@ import { useTaskStore } from '../stores/useTaskStore';
 import { useActivityStore } from '../stores/useActivityStore';
 import { getHermesCron, type HermesCronJob } from '../lib/api';
 import { Panel, Sparkline, Ring, LogTail } from '../components/cyberpunk/ui';
+import AgentPerformance from '../components/AgentPerformance';
+import { computeAgentMetrics } from '../lib/agentMetrics';
 
 const STATUS_COLORS: Record<string, string> = {
   running: '#f59e0b',
@@ -24,6 +26,19 @@ export default function WarRoom() {
   // Bottom feed toggles between the kanban task log and the live agent signal
   // feed (formerly the standalone Signal Intelligence tab, now consolidated here).
   const [feed, setFeed] = useState<'tasks' | 'signal'>('tasks');
+  // AGENT LOAD panel toggles between current load (running·queue) and the
+  // historical performance leaderboard (throughput / success rate / avg duration).
+  const [agentView, setAgentView] = useState<'load' | 'perf'>('load');
+  // `nowMs` drives the leaderboard's trailing-24h window; set in an effect (never
+  // Date.now() during render) so the component stays render-pure for react-hooks.
+  const [nowMs, setNowMs] = useState(0);
+  useEffect(() => {
+    // Seed via a 0ms timeout (not a synchronous setState in the effect body, and
+    // never Date.now() during render) so both react-hooks purity rules stay happy.
+    const seed = setTimeout(() => setNowMs(Date.now()), 0);
+    const id = setInterval(() => setNowMs(Date.now()), 30000);
+    return () => { clearTimeout(seed); clearInterval(id); };
+  }, []);
 
   // Status/topology/tasks are polled globally by Layout; here we only poll cron.
   useEffect(() => {
@@ -66,6 +81,9 @@ export default function WarRoom() {
     ).slice(0, 8),
     [agents],
   );
+
+  // Per-agent performance leaderboard — pure aggregation of the live task queue.
+  const agentMetrics = useMemo(() => computeAgentMetrics(hermesTasks, nowMs), [hermesTasks, nowMs]);
 
   const log = useMemo(
     () => [...hermesTasks]
@@ -175,22 +193,41 @@ export default function WarRoom() {
           </div>
         </Panel>
 
-        <Panel label="AGENT LOAD" right="running · queue">
-          <div className="h-full flex flex-col gap-2 overflow-auto">
-            {topAgents.map((a) => {
-              const load = (a.tasks_running ?? 0) + (a.queue_depth ?? 0);
-              return (
-                <div key={a.id} className="flex items-center gap-2">
-                  <span className="w-28 text-[10px] font-mono text-[#b8b8b8] truncate">{a.name}</span>
-                  <div className="flex-1 h-4 bg-[#080808] relative border border-white/5">
-                    <div className="absolute inset-y-0 left-0" style={{ width: `${Math.min(load * 20, 100)}%`, background: (a.tasks_running ?? 0) > 0 ? '#f64e6e' : '#38bdf8', opacity: 0.8 }} />
+        <Panel
+          label={agentView === 'load' ? 'AGENT LOAD' : 'AGENT PERFORMANCE'}
+          right={(
+            <span className="flex items-center gap-2">
+              <button
+                onClick={() => setAgentView('load')}
+                className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${agentView === 'load' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+              >LOAD</button>
+              <button
+                onClick={() => setAgentView('perf')}
+                className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${agentView === 'perf' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+              >PERF</button>
+              <span className="hidden sm:inline">{agentView === 'load' ? 'running · queue' : `${agentMetrics.length} ranked`}</span>
+            </span>
+          )}
+        >
+          {agentView === 'load' ? (
+            <div className="h-full flex flex-col gap-2 overflow-auto">
+              {topAgents.map((a) => {
+                const load = (a.tasks_running ?? 0) + (a.queue_depth ?? 0);
+                return (
+                  <div key={a.id} className="flex items-center gap-2">
+                    <span className="w-28 text-[10px] font-mono text-[#b8b8b8] truncate">{a.name}</span>
+                    <div className="flex-1 h-4 bg-[#080808] relative border border-white/5">
+                      <div className="absolute inset-y-0 left-0" style={{ width: `${Math.min(load * 20, 100)}%`, background: (a.tasks_running ?? 0) > 0 ? '#f64e6e' : '#38bdf8', opacity: 0.8 }} />
+                    </div>
+                    <span className="w-16 text-right text-[10px] font-mono tabular-nums text-white">{a.tasks_running ?? 0}·{a.queue_depth ?? 0}</span>
                   </div>
-                  <span className="w-16 text-right text-[10px] font-mono tabular-nums text-white">{a.tasks_running ?? 0}·{a.queue_depth ?? 0}</span>
-                </div>
-              );
-            })}
-            {topAgents.length === 0 && <div className="text-[10px] font-mono text-[#545454]">No agents online.</div>}
-          </div>
+                );
+              })}
+              {topAgents.length === 0 && <div className="text-[10px] font-mono text-[#545454]">No agents online.</div>}
+            </div>
+          ) : (
+            <AgentPerformance metrics={agentMetrics} />
+          )}
         </Panel>
       </div>
 
