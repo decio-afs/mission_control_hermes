@@ -16,7 +16,7 @@ do not push/PR. Keep LIVE Hermes-backed functionality intact; only consolidate r
 
 ---
 
-## Current State (10 tabs — unchanged count after Run #4; Command's BRIDGE LOG now collapsible)
+## Current State (10 tabs — unchanged count after Run #5; global ⌘F Task Search added)
 
 Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 `Layout.tsx` (sidebar) and `CommandPalette.tsx`. To add/remove/reorder a tab, edit `nav.ts`.
@@ -24,25 +24,37 @@ Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 | # | Path | Page | Data | Notes |
 |---|------|------|------|-------|
 | 00 | `/command`     | Hermes Command (Cyberpunk) | LIVE | Primary ops console: agents, tasks, spawn/dispatch. Cron = read-only summary linking to Operations (Run #3). **BRIDGE LOG is now a collapsible drawer** (Run #4). **GHOST LEGION rows open the Agent Drill-Down** (Run #4). |
-| 01 | `/network`     | Ghost Network              | LIVE | NEXUS Orchestration Deck — agent topology (rebuilt, scoped `ghostNexus.css`). |
+| 01 | `/network`     | Ghost Network              | LIVE | NEXUS Orchestration Deck — agent topology (rebuilt, scoped `ghostNexus.css`). **Agent detail panel now has an `▦ INSPECT` button → Agent Drill-Down** (Run #5 — all 3 roster surfaces now share it). |
 | 02 | `/agent-hub`   | Agent Hub                  | LIVE | Agent CRUD registry + agent-activity tab + spawn-on-task. **Roster rows + INSPECT button open the Agent Drill-Down** (Run #4). |
 | 03 | `/war-room`    | War Room                   | LIVE | Metrics gauges + task-status + agent-load + **TASKS/SIGNAL feed toggle**. |
-| 04 | `/operations`  | Operations Center          | LIVE | Kanban CRUD + cron list/run/**create** + task decompose. **Single cron home.** |
+| 04 | `/operations`  | Operations Center          | LIVE | Kanban CRUD + cron list/run/**create** + task decompose. **Single cron home.** **MISSION QUEUE now flex-based (no magic-number maxHeight)** and **receives ⌘F Task Search focus** (scroll + flash-highlight) (Run #5). |
 | 05 | `/chat`        | Ghost Comms (ChatTerminal) | LIVE | Chat round-trips to Hermes. **Narrow-width layout now uses explicit grid rows** (Run #4). |
 | 06 | `/factory`     | Content Factory            | LIVE | `useContentStore` → `/api/content/pipeline`. |
 | 07 | `/briefing`    | Briefing Terminal          | LIVE | `useBriefingStore` (briefing + sentinel digest). |
 | 08 | `/leads`       | Lead Tracker               | LIVE | `useLeadStore`. |
 | 09 | `/design-lab`  | Design Lab                 | DEMO | **Consolidated showcase** — internal sub-tabs: Intel Deck / Workflow Builder / Archives / Broadcast Uplink. |
 
-- **Global topbar tooling (in `Layout.tsx`):** `⌘K` command palette (`CommandPalette.tsx`)
+- **Global topbar tooling (in `Layout.tsx`):** `⌘K` command palette (`CommandPalette.tsx`),
+  a **`⌕ ⌘F` Task Search** button (Run #5 — `src/components/TaskSearch.tsx`),
   **and** a **DIAG** button (Run #3) that opens the **Bridge Diagnostics** modal
   (`src/components/BridgeDiagnostics.tsx`) — a green/red dot mirrors `vitals.hermesOnline`.
+- **Task Search (Run #5):** a global `⌘F`/`Ctrl+F` overlay (`src/components/TaskSearch.tsx`,
+  mounted once in `Layout.tsx`) that fuzzy-searches the whole Hermes queue
+  (`useTaskStore.hermesTasks`) by title / id / assignee / status, with status-filter chips.
+  Selecting a task routes to Operations and focuses it (scroll-into-view + 2.4s flash highlight)
+  via the tiny `useTaskFocusStore` (`focus(id)` / `clear()` + a `nonce` so re-selecting the same
+  task re-fires). No new bridge endpoint — pure client filter of the already-polled store.
+  Distinct from the ⌘K palette (nav/agents) — this is deep task-only filtering.
 - **Agent Drill-Down (Run #4):** a global right-side slide-over (`src/components/AgentDrillDown.tsx`)
   mounted once in `Layout.tsx`, opened from any roster surface via the tiny
   `useAgentDrilldownStore` (`open(name)`/`close()`). Shows the agent's live status/queue,
   assigned tasks (filtered from `/api/hermes/tasks` by `assignee`) and recent activity
   (filtered from `/api/hermes/activity` by `agent`). No new bridge endpoint — pure client
-  aggregation of existing stores. Esc / backdrop closes.
+  aggregation of existing stores. Esc / backdrop closes. **Now wired from all 3 roster surfaces**
+  (Agent Hub, Command, **and the Nexus deck's `▦ INSPECT` button** — Run #5). The **⌘K Command
+  Palette's agent results also open the drill-down in place** instead of navigating to Agent Hub
+  (Run #5). Shows an **"agent not in current topology" amber hint** when the clicked agent isn't
+  in the live mesh (Run #5).
 - **Cron lives in ONE place now (Run #3):** Operations is the cron home (list/run/create).
   Command's old cron widget (with per-job RUN NOW buttons) was trimmed to a read-only
   count + name/schedule list + "OPEN OPERATIONS" link. No live cron *control* duplicated.
@@ -73,47 +85,100 @@ Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 ## Next Steps / TODO (the next run executes these)
 
 ### Consolidation
-- [ ] **Wire the Agent Drill-Down into the Nexus deck (`/network`)** — Run #4 added the global
-      `useAgentDrilldownStore` + `AgentDrillDown` slide-over and wired it from Agent Hub + Command's
-      GHOST LEGION. The Nexus Orchestration Deck (`src/pages/GhostNetwork.tsx`) still has no entry point;
-      make its agent nodes call `useAgentDrilldownStore.open(name)` so all three roster surfaces share it.
-      Also consider routing the Command Palette's "agent" results to `open(name)` instead of (or alongside)
-      navigating to Agent Hub.
 - [ ] **Command vs Operations task-creation duplication** — both Command (CREATE TASK / DISPATCH AGENT) and
       Operations (MISSION QUEUE create + DECOMPOSE) expose task creation. Distinct enough (Command = quick
       inline, Operations = full kanban), but evaluate trimming Command's CREATE TASK to a link to Operations,
       mirroring how cron was consolidated in Run #3. Conservative — confirm before removing a live verb.
-- [x] ~~ChatTerminal SESSIONS rail vs roster~~ — VERIFIED NOT redundant in Run #4 (it lists chat sessions
-      from `useChatStore`, never agents — left as-is).
-- [x] ~~Command BRIDGE LOG earns its vertical space?~~ — DONE in Run #4 (made it a collapsible drawer with
-      persisted `mc-bridgelog-open` preference; default expanded).
+      **This is now the LAST queued consolidation candidate** — every other roster/cron/log overlap has been
+      resolved across Runs #1–#5. Decide it next run (trim or keep-with-rationale) and the consolidation pass
+      is effectively complete; future runs can shift focus to UI polish + new features.
+- [x] ~~Wire the Agent Drill-Down into the Nexus deck~~ — DONE in Run #5 (Nexus detail panel `▦ INSPECT`
+      button → `useAgentDrilldownStore.open(name)`; Command Palette agent results also open it in place).
+- [x] ~~ChatTerminal SESSIONS rail vs roster~~ — VERIFIED NOT redundant in Run #4.
+- [x] ~~Command BRIDGE LOG earns its vertical space?~~ — DONE in Run #4 (collapsible drawer).
 
 ### UI / Display Fixes
-- [x] ~~ChatTerminal narrow-width layout~~ — DONE in Run #4 (explicit `grid-rows-[minmax(110px,28vh)_1fr]`
-      on narrow, `lg:grid-rows-1`; verified mobile 375px stacks with 0 overflow, desktop 1440px = 240px+1fr).
-- [x] ~~Command top stats `lg:grid-cols-7`~~ — DONE in Run #4 (`xl:grid-cols-7`; stays 4-up until xl width).
-- [ ] **Operations Center `calc(100% - 110px)` task list** — still uses a fragile magic-number maxHeight on
-      the MISSION QUEUE scroll list (subtracts the filter row + create-task footer height). Works today, but
-      a flex-based `flex-1 min-h-0` layout (footer as a `shrink-0` sibling) would be more robust than the
-      hardcoded 110px. Low priority — not currently clipping.
-- [ ] **AgentDrillDown polish** — the status strip falls back to `STATUS UNKNOWN / TYPE —` when the clicked
-      agent isn't in `useGhostStore.nodes` (e.g. opened from a stale palette entry). Acceptable, but consider
-      showing a subtle "agent not in current topology" hint. Also: the slide-over has no skills row yet
-      (GhostNode carries no skills; would need a bridge field) — wire skills if/when the agent detail grows.
+- [x] ~~Operations Center `calc(100% - 110px)` task list~~ — DONE in Run #5 (Panel `bodyClass="flex flex-col"`;
+      filter row + create footer are `shrink-0`, scroll list is `flex-1 min-h-0 overflow-auto`; magic-number gone).
+- [x] ~~AgentDrillDown "agent not in current topology" hint~~ — DONE in Run #5 (amber hint when `node` is undefined).
+- [ ] **AgentDrillDown skills row** — the slide-over still has no skills row (GhostNode carries no `skills`;
+      `HermesTask.skills` exists but is per-task, not per-agent). Would need a bridge field on the agent node.
+      Wire skills if/when the agent detail grows. Low priority.
+- [ ] **Cyberpunk (Command) top-stats density at `xl`** — re-audit the 7-stat grid on very wide (≥1920px)
+      monitors; verify the `xl:grid-cols-7` breakpoint from Run #4 still reads well and the GHOST LEGION /
+      BRIDGE LOG columns don't leave large dead gutters. Screenshot at 1920 + 2560 if a preview is available.
+- [ ] **Newly observed:** the Nexus deck agent detail header now holds **two** `.dclose` buttons
+      (`▦ INSPECT` + `▢ CLOSE`); they render fine (flex `margin-left:auto` + 12px gap) but on a very narrow
+      right panel they could crowd the agent name. Consider a `flex-wrap`/min-width guard if it ever clips.
 
-### Next Feature (must differ from Run History — Run #1: Command Palette; Run #2: Cron Creation UI; Run #3: Bridge Diagnostics; Run #4: Agent Drill-Down)
-- [ ] Build a **global task search / filter bar** — a `⌘F`-style overlay (or a persistent filter row) that
-      searches `/api/hermes/tasks` across ALL tabs by title / id / assignee / status, and on selecting a task
-      routes to Operations with that task focused. Reuses `useTaskStore.hermesTasks` (already polled globally).
-      Distinct from the Command Palette (which jumps to nav modules/agents, not deep task filtering).
+### Next Feature (must differ from Run History — Run #1: Command Palette; Run #2: Cron Creation UI; Run #3: Bridge Diagnostics; Run #4: Agent Drill-Down; Run #5: Global Task Search ⌘F)
+- [ ] Build a **task dependency / workflow-step view** — `HermesTask` already carries `workflow_template_id`
+      + `current_step_key`. Render, for tasks that belong to a workflow, a compact stepper/timeline showing
+      the template's steps and where the task currently sits (and sibling tasks sharing the same
+      `workflow_template_id`). Surface it inside the Agent Drill-Down or as a new panel/modal opened from
+      Operations. May need a small bridge endpoint to fetch the workflow template's step list if the task row
+      alone doesn't carry it — check `hermes-bridge.py` / the CLI for a `workflow`/`template` command first.
 - [ ] Alternative candidates (pick ONE, not already done): live log streaming (SSE/poll tail of a Hermes
-      run), task dependency / workflow-step view (HermesTask carries `workflow_template_id` + `current_step_key`),
-      completed-task desktop notifications (Electron `Notification` on `done` transitions), keyboard-shortcuts
-      cheat-sheet overlay.
+      run), completed-task desktop notifications (Electron `Notification` on `done` transitions),
+      keyboard-shortcuts cheat-sheet overlay (now that ⌘K + ⌘F + DIAG exist, a `?` overlay listing them earns
+      its keep), agent performance metrics (per-agent throughput / avg task duration from activity history).
 
 ---
 
 ## Run History (newest first — append, never overwrite)
+
+### 2026-06-09 — Run #5 (branch `auto/evolve-task-search`)
+
+**Tab audit findings.** Re-enumerated all 10 tabs from `nav.ts`/`App.tsx`/`Layout.tsx` (count unchanged
+since Run #2). The consolidation backlog is nearly exhausted: every roster/cron/activity-log overlap flagged
+across Runs #1–#4 is now resolved. The two items Run #4 queued were both handled this run — (1) the **Nexus
+deck lacked an Agent Drill-Down entry point** (the slide-over was wired from only 2 of 3 roster surfaces) and
+(2) the **Command Palette's agent results navigated to Agent Hub** rather than opening the shared drill-down.
+Both fixed (see Consolidation). The **only remaining consolidation candidate** is Command vs Operations
+task-creation duplication (CREATE TASK on both) — left untouched, conservatively, and explicitly flagged as
+the last open item for the next run to decide.
+
+**Consolidated — Agent Drill-Down now shared by all three roster surfaces + the palette.**
+(1) **Nexus deck (`src/pages/GhostNetwork.tsx`)** — its in-page agent detail panel previously had no path to
+the global drill-down. Added an `▦ INSPECT` button to the detail header (beside `▢ CLOSE`) that calls
+`useAgentDrilldownStore.open(selected.name)`. The existing in-page telemetry panel is preserved; INSPECT is an
+additional, deeper entry point, so Agent Hub + Command + Nexus all now open the same slide-over.
+(2) **Command Palette (`src/components/CommandPalette.tsx`)** — selecting an `agent` result now calls
+`openDrilldown(item.title)` in place instead of `navigate('/agent-hub')`; module/task/action results still
+navigate. Wires the palette into the shared drill-down so searching an agent + Enter inspects it instantly.
+
+**UI fixes.** (1) **Operations Center MISSION QUEUE** — replaced the fragile `maxHeight: calc(100% - 110px)`
+magic-number on the task scroll list with a robust flex layout: the Panel body is now `flex flex-col`
+(via the new `bodyClass` prop), the filter row and create-task footer are `shrink-0` siblings, and the scroll
+list is `flex-1 min-h-0 overflow-auto`. No longer depends on hand-counting the filter+footer height. Verified
+live: panel body is flex-col, scroll list uses `flex-1`, and `calc(100% - 110px)` is gone from the DOM.
+(2) **AgentDrillDown** — when the clicked agent isn't in `useGhostStore.nodes` (e.g. opened from a stale
+palette/search entry), the status strip fell back to `STATUS UNKNOWN / TYPE —` with no explanation. Added a
+subtle amber hint ("Agent not in the current topology — showing its tasks & activity only…") so the empty
+status reads as intentional rather than broken.
+
+**New feature — Global Task Search (`⌘F` / `Ctrl+F`).** A keyboard-first overlay that deep-filters the
+**entire** Hermes task queue — distinct from the ⌘K Command Palette (which jumps to nav modules/agents).
+**Store:** `src/stores/useTaskFocusStore.ts` — a tiny global `{ focusId, nonce, focus(id), clear() }` so the
+overlay can hand a task off to Operations (the `nonce` re-fires the scroll/highlight even when the same task
+is chosen twice). **Component:** `src/components/TaskSearch.tsx` — subsequence fuzzy-search over
+`useTaskStore.hermesTasks` across title / id / assignee / status, plus a row of status-filter chips
+(ALL/READY/RUNNING/BLOCKED/DONE/FAILED); arrow-key nav, Enter opens, Esc/backdrop closes. Selecting a task
+calls `focus(id)` + `navigate('/operations')`. **Operations wiring** (`src/pages/OperationsCenter.tsx`) — an
+effect on `focusId`/`nonce` resets the status filter to ALL (so the task is guaranteed visible), scrolls the
+matching `[data-task-id]` row into view (`block:'center'`, smooth) and flash-highlights it (coral ring) for
+2.4s, then clears the focus. **Mounted** once in `Layout.tsx` with a `⌕ ⌘F` topbar button (beside `⌘K`).
+**No new bridge endpoint** — pure client filter of the already-globally-polled task store. **How to access:**
+press `Ctrl/⌘ F` anywhere, or click `⌕ ⌘F` in the top bar; type to filter, ↑↓ to navigate, ↵ to jump to the
+task in Operations. **Verified live** (bridge offline): overlay opens via the shortcut + topbar button,
+renders the status-filter chips + footer (`TASK SEARCH · ⌘F`), and degrades gracefully to "No tasks in the
+queue yet." with an empty store; no React/render console errors (only the expected bridge-offline network
+warnings).
+
+**Verify.** `npm run build` ✓ (tsc + vite, **114 modules**, up from 112), `npm run lint` ✓ (0 issues), and a
+live Vite preview pass: `/operations`, `/network` and the topbar all render with no React errors (only
+pre-existing bridge-offline network warnings); confirmed the ⌘F overlay opens/closes, the Operations flex
+layout (no magic-number), and both `⌕ ⌘F` + `⌘K` topbar buttons present.
 
 ### 2026-06-09 — Run #4 (branch `auto/evolve-agent-drilldown`)
 
