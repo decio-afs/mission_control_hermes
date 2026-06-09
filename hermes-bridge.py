@@ -139,6 +139,12 @@ class AttachmentPayload(BaseModel):
     data: str
 
 
+class TranscribePayload(BaseModel):
+    # base64-encoded audio (raw base64 or a full data: URL), e.g. webm/opus from MediaRecorder
+    audio: str
+    mime: Optional[str] = None
+
+
 class ChatPayload(BaseModel):
     message: str
     model: Optional[str] = None
@@ -454,6 +460,101 @@ def chat_message(payload: ChatPayload):
         "stderr": resp.get("stderr", ""),
         "success": resp.get("success", True),
     }
+
+
+# ---------------------------------------------------------------------------
+# Local voice transcription (offline, via faster-whisper). Optional dependency:
+#   pip install faster-whisper
+# Lazy-loaded so the bridge starts fine without it; the UI falls back to the
+# browser Web Speech API when this endpoint reports unavailable.
+# ---------------------------------------------------------------------------
+_whisper_model = None
+_whisper_load_error: Optional[str] = None
+
+
+def _whisper_installed() -> bool:
+    try:
+        import faster_whisper  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _get_whisper_model():
+    """Load (once) and return the Whisper model, or None if unavailable."""
+    global _whisper_model, _whisper_load_error
+    if _whisper_model is not None:
+        return _whisper_model
+    if _whisper_load_error is not None:
+        return None
+    try:
+        from faster_whisper import WhisperModel
+        size = os.environ.get("WHISPER_MODEL", "base.en")
+        device = os.environ.get("WHISPER_DEVICE", "cpu")
+        compute = os.environ.get("WHISPER_COMPUTE", "int8")
+        _whisper_model = WhisperModel(size, device=device, compute_type=compute)
+        return _whisper_model
+    except Exception as exc:  # noqa: BLE001
+        _whisper_load_error = str(exc)
+        return None
+
+
+@app.get("/api/transcribe/status")
+def transcribe_status():
+    """Report whether local Whisper transcription is available on this bridge."""
+    return {
+        "available": _whisper_installed(),
+        "model": os.environ.get("WHISPER_MODEL", "base.en"),
+        "loadError": _whisper_load_error,
+    }
+
+
+@app.post("/api/transcribe")
+def transcribe(payload: TranscribePayload):
+    """Transcribe a base64 audio clip to text using a local Whisper model."""
+    if not _whisper_installed():
+        raise HTTPException(
+            status_code=503,
+            detail="faster-whisper not installed on the bridge (pip install faster-whisper)",
+        )
+    model = _get_whisper_model()
+    if model is None:
+        raise HTTPException(status_code=500, detail=f"Whisper model failed to load: {_whisper_load_error}")
+
+    raw = payload.audio or ""
+    if raw.startswith("data:") and "," in raw:
+        raw = raw.split(",", 1)[1]
+    try:
+        blob = base64.b64decode(raw, validate=False)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad base64 audio")
+    if not blob:
+        raise HTTPException(status_code=400, detail="Empty audio upload")
+
+    mime = (payload.mime or "").lower()
+    suffix = ".webm"
+    if "ogg" in mime:
+        suffix = ".ogg"
+    elif "wav" in mime:
+        suffix = ".wav"
+    elif "mp4" in mime or "m4a" in mime:
+        suffix = ".mp4"
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(blob)
+        tmp_path = tmp.name
+    try:
+        segments, _info = model.transcribe(tmp_path, language="en", vad_filter=True)
+        text = " ".join(seg.text.strip() for seg in segments).strip()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {exc}")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    return {"text": text}
 
 
 @app.get("/api/hermes/briefing")

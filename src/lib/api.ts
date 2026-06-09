@@ -207,6 +207,17 @@ export async function sendHermesChat(payload: { message: string; model?: string;
   return data;
 }
 
+export async function getTranscribeStatus(): Promise<{ available: boolean; model: string; loadError: string | null }> {
+  const { data } = await bridge.get('/api/transcribe/status');
+  return data;
+}
+
+export async function transcribeAudio(audio: string, mime?: string): Promise<{ text: string }> {
+  // Whisper inference on CPU can take a few seconds for longer clips.
+  const { data } = await bridge.post('/api/transcribe', { audio, mime }, { timeout: 120000 });
+  return data;
+}
+
 export async function getHermesBriefing(): Promise<HermesBriefing> {
   const { data } = await bridge.get('/api/hermes/briefing');
   return data;

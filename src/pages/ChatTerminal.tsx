@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { sendHermesChat, type ChatAttachmentUpload } from '../lib/api';
+import { sendHermesChat, getTranscribeStatus, transcribeAudio, type ChatAttachmentUpload } from '../lib/api';
 import { Panel } from '../components/cyberpunk/ui';
 import { useChatStore, type ChatAttachment } from '../stores/useChatStore';
 
@@ -58,10 +58,16 @@ export default function ChatTerminal() {
   const [dragOver, setDragOver] = useState(false);
   const [listening, setListening] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [whisperReady, setWhisperReady] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const inputAtDictationStart = useRef('');
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
 
   const speechSupported =
     typeof window !== 'undefined' &&
@@ -215,6 +221,87 @@ export default function ChatTerminal() {
 
   // Stop dictation if the user navigates away
   useEffect(() => () => { try { recognitionRef.current?.stop(); } catch { /* noop */ } }, []);
+
+  // ---- Local Whisper transcription (preferred: works in Electron, fully offline) ----
+  useEffect(() => {
+    let alive = true;
+    getTranscribeStatus()
+      .then((s) => { if (alive) setWhisperReady(!!s.available); })
+      .catch(() => { if (alive) setWhisperReady(false); });
+    return () => { alive = false; };
+  }, []);
+
+  const stopMediaStream = useCallback(() => {
+    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    mediaStreamRef.current = null;
+  }, []);
+
+  const blobToDataUrl = (blob: Blob): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error ?? new Error('read failed'));
+      reader.readAsDataURL(blob);
+    });
+
+  const startRecording = useCallback(async () => {
+    setVoiceError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const rec = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      rec.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      rec.onstop = async () => {
+        stopMediaStream();
+        const blob = new Blob(audioChunksRef.current, { type: rec.mimeType || 'audio/webm' });
+        if (!blob.size) { setRecording(false); return; }
+        setTranscribing(true);
+        try {
+          const dataUrl = await blobToDataUrl(blob);
+          const { text } = await transcribeAudio(dataUrl, blob.type);
+          if (text) {
+            setInput((prev) => (prev.trim() ? prev.trim() + ' ' : '') + text);
+          } else {
+            setVoiceError('No speech detected.');
+          }
+        } catch (err) {
+          setVoiceError(`Transcription failed: ${err instanceof Error ? err.message : 'unknown error'}`);
+        } finally {
+          setTranscribing(false);
+        }
+      };
+      rec.start();
+      mediaRecorderRef.current = rec;
+      setRecording(true);
+    } catch {
+      setVoiceError('Microphone access denied or unavailable.');
+      setRecording(false);
+    }
+  }, [stopMediaStream]);
+
+  const stopRecording = useCallback(() => {
+    try { mediaRecorderRef.current?.stop(); } catch { /* noop */ }
+    setRecording(false);
+  }, []);
+
+  // Tear down any live recording on unmount
+  useEffect(() => () => {
+    try { mediaRecorderRef.current?.stop(); } catch { /* noop */ }
+    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+  }, []);
+
+  // Mic button: prefer local Whisper (record → transcribe); else Web Speech API live dictation.
+  const micUsable = whisperReady || speechSupported;
+  const micBusy = recording || transcribing || listening;
+  const handleMicClick = () => {
+    if (transcribing) return;
+    if (whisperReady) {
+      if (recording) stopRecording(); else void startRecording();
+    } else {
+      toggleListening();
+    }
+  };
 
   const handleNewSession = () => {
     createSession(`Session ${sessions.length + 1}`);
@@ -472,16 +559,21 @@ export default function ChatTerminal() {
             </button>
             {/* Mic */}
             <button
-              onClick={toggleListening}
-              disabled={sending || !activeSession || !speechSupported}
-              title={speechSupported ? (listening ? 'Stop dictation' : 'Dictate with microphone') : 'Voice input unavailable'}
+              onClick={handleMicClick}
+              disabled={sending || !activeSession || !micUsable || transcribing}
+              title={
+                !micUsable ? 'Voice input unavailable'
+                : transcribing ? 'Transcribing…'
+                : whisperReady ? (recording ? 'Stop & transcribe' : 'Record voice (local Whisper)')
+                : listening ? 'Stop dictation' : 'Dictate with microphone'
+              }
               className={`h-9 w-9 shrink-0 flex items-center justify-center text-[14px] border disabled:opacity-30 disabled:cursor-not-allowed ${
-                listening
+                micBusy
                   ? 'border-[#f64e6e] bg-[#f64e6e]/20 text-[#f64e6e] animate-pulse'
                   : 'border-white/10 bg-[#080808] text-[#b8b8b8] hover:border-[#f64e6e]/50 hover:text-[#f64e6e]'
               }`}
             >
-              {listening ? '⏺' : '🎤'}
+              {transcribing ? '◌' : recording || listening ? '⏺' : '🎤'}
             </button>
 
             <input
@@ -491,6 +583,8 @@ export default function ChatTerminal() {
               onPaste={handlePaste}
               placeholder={
                 !activeSession ? 'Select a session first...'
+                : recording ? 'Recording… click ⏺ to stop'
+                : transcribing ? 'Transcribing…'
                 : listening ? 'Listening…'
                 : dragOver ? 'Drop files to attach…'
                 : 'Enter directive...'
