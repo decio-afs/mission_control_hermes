@@ -335,6 +335,45 @@ def get_tasks():
     return {"tasks": resp["data"]}
 
 
+@app.get("/api/hermes/activity")
+def get_activity():
+    """Derive a live activity stream from kanban task lifecycle timestamps.
+
+    Hermes has no dedicated activity log, so we synthesize one from real task
+    events (created / claimed / completed) — every entry reflects an actual
+    state change on a real task.
+    """
+    resp = run_hermes("kanban", "list", "--json")
+    tasks = resp["data"] if isinstance(resp["data"], list) else []
+    events: list[dict[str, Any]] = []
+
+    def short(title: Optional[str]) -> str:
+        t = (title or "untitled").strip()
+        return t if len(t) <= 64 else t[:63] + "…"
+
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        tid = str(t.get("id", ""))
+        agent = t.get("assignee") or t.get("created_by") or "system"
+        title = short(t.get("title"))
+        created = t.get("created_at")
+        started = t.get("started_at")
+        completed = t.get("completed_at")
+        if isinstance(created, (int, float)):
+            events.append({"id": f"{tid}-c", "agent": agent, "action": f"task created · {title}", "timestamp": created, "status": "created"})
+        if isinstance(started, (int, float)):
+            events.append({"id": f"{tid}-s", "agent": agent, "action": f"claimed · {title}", "timestamp": started, "status": "running"})
+        if isinstance(completed, (int, float)):
+            status = "blocked" if t.get("status") in ("blocked", "failed") else "complete"
+            verb = "blocked" if status == "blocked" else "completed"
+            events.append({"id": f"{tid}-d", "agent": agent, "action": f"{verb} · {title}", "timestamp": completed, "status": status})
+
+    # Most recent first from the source, but cap to the latest 50 events.
+    events.sort(key=lambda e: e["timestamp"], reverse=True)
+    return {"activities": events[:50]}
+
+
 @app.post("/api/hermes/tasks")
 def create_task(payload: CreateTaskPayload):
     """Create a kanban task."""

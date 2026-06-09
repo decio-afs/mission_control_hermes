@@ -1,486 +1,477 @@
-// Ghost Network — "Agent Nexus" reactor dashboard.
+// Ghost Network — "NEXUS // Orchestration Deck".
 //
-// A large central energy reactor (the orchestrator) with live Hermes agents
-// radiating outward on lush, flowing orange/cyan plasma streams. Each agent is a
-// particle-burst orb colour-coded by state, with stacked ACTIVE/WORKING status
-// tags. Floating HUD panels (AGENT COMMS, AGENT TRACKING) and a framed overlay
-// complete the command-deck look — all bound to live bridge data.
-import { useState, useEffect, useRef, useMemo } from 'react';
+// Ported from the Claude Design "jarvis" handoff bundle and wired to LIVE Hermes
+// data: the agent roster, orbital mesh, grid cards and detail panel all render
+// real agents from useGhostStore; the activity stream is the live Hermes feed;
+// and the command bar issues real directives to the orchestrator via sendHermesChat.
+import { useState, useEffect, useRef, useMemo, useCallback, useId } from 'react';
 import { useGhostStore, type GhostNode } from '../stores/useGhostStore';
-import { hRand } from '../components/cyberpunk/util';
+import { useActivityStore } from '../stores/useActivityStore';
+import { sendHermesChat, errMessage } from '../lib/api';
+import './ghostNexus.css';
 
-const CYAN = '#38bdf8';
-const isOnline = (n?: GhostNode) => !!n && (n.status === 'active' || n.status === 'online');
-const isBusy = (n?: GhostNode) => !!n && (n.tasks_running ?? 0) > 0;
+// ── static lookups ─────────────────────────────────────────────────────────
+type Status = 'working' | 'active' | 'idle' | 'warn';
+const STLABEL: Record<Status, string> = { working: 'EXEC', active: 'LIVE', idle: 'IDLE', warn: 'WARN' };
 
-interface Placed {
-  node: GhostNode;
-  x: number;
-  y: number;
-  ang: number;
-  online: boolean;
-  busy: boolean;
+const SQUAD_TONE: Record<string, string> = {
+  CORE: '#00e5ff', SEC: '#ff2d6b', INTEL: '#9d7bff', INFRA: '#0aff9d', CONT: '#ffb627', DEV: '#00e5ff',
+};
+const SQUAD_ROLE: Record<string, { role: string; domain: string }> = {
+  CORE: { role: 'Orchestrator', domain: 'Coordination · Routing' },
+  SEC: { role: 'Security', domain: 'Monitor · Guardrails' },
+  INTEL: { role: 'Intelligence', domain: 'Research · Synthesis' },
+  INFRA: { role: 'Infrastructure', domain: 'Scheduling · Pipelines' },
+  CONT: { role: 'Content', domain: 'Drafting · Media' },
+  DEV: { role: 'Engineering', domain: 'Code · Review · Deploy' },
+};
+const SQUAD_GLYPH: Record<string, string> = {
+  CORE: 'M12 3a9 9 0 100 18 9 9 0 000-18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18',
+  SEC: 'M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z',
+  INTEL: 'M11 4a7 7 0 100 14 7 7 0 000-14zM21 21l-5-5',
+  INFRA: 'M4 5h16v15H4zM4 9h16M8 3v4M16 3v4',
+  CONT: 'M4 20l4-1L18 9l-3-3L5 16zM14 6l3 3',
+  DEV: 'M8 6l-5 6 5 6M16 6l5 6-5 6M13 4l-2 16',
+};
+const DEFAULT_GLYPH = 'M3 5h18M3 12h18M3 19h12';
+
+const rnd = (a: number, b: number) => a + Math.random() * (b - a);
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const pad = (n: number) => String(n).padStart(2, '0');
+
+interface NexAgent {
+  id: string; name: string; role: string; domain: string;
+  status: Status; online: boolean; color: string; ring: 0 | 1;
+  load: number; task: string; running: number; queue: number;
+  squad: string; tags: string[]; glyph: string;
 }
 
-function orbColor(online: boolean, busy: boolean): string {
-  if (busy) return '#ff6a3d';   // WORKING — hot orange
-  if (online) return '#f59e0b'; // ACTIVE/IDLE — amber
-  return CYAN;                  // INACTIVE — cyan
+interface FeedLine { id: string; ts: number; ag: string; kind: string; text: string; jarvis: boolean; fresh: boolean; }
+
+function deriveStatus(n: GhostNode): Status {
+  const online = n.status === 'active' || n.status === 'online';
+  if (!online) return 'idle';
+  const q = n.queue_depth ?? 0, r = n.tasks_running ?? 0;
+  if (q >= 8) return 'warn';
+  if (r > 0) return 'working';
+  return 'active';
 }
 
-// Curved stream from the core to a node with a perpendicular bow `off`.
-function stream(cx: number, cy: number, x: number, y: number, off: number): string {
-  const mx = (cx + x) / 2;
-  const my = (cy + y) / 2;
-  const dx = x - cx;
-  const dy = y - cy;
-  return `M ${cx} ${cy} Q ${mx - dy * off} ${my + dx * off} ${x} ${y}`;
+// Deterministic [0,1) hash noise — pure, so the sparkline can render from props
+// alone (no state/effect) while still animating as `tick` slides the window.
+function noise(seed: number): number {
+  const x = Math.sin(seed * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
 }
+
+// ── live sparkline (seeded noise window driven by the global tick) ──────────
+function Spark({ base, color, w, h, className, tick }: { base: number; color: string; w: number; h: number; className: string; tick: number }) {
+  const rawId = useId();
+  const seed = useMemo(() => { let s = 0; for (let i = 0; i < rawId.length; i++) s = (s * 31 + rawId.charCodeAt(i)) >>> 0; return s % 9973; }, [rawId]);
+  const n = 26;
+  const data = Array.from({ length: n }, (_, i) => clamp(base + (noise(seed + (tick - (n - 1 - i))) * 0.32 - 0.16), 0.04, 0.98));
+  const pts = data.map((v, i) => `${((i / (n - 1)) * w).toFixed(1)},${(h - v * h).toFixed(1)}`);
+  return (
+    <svg className={className} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+      <defs>
+        <linearGradient id={`sg-${seed}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor={color} /><stop offset="1" stopColor="transparent" />
+        </linearGradient>
+      </defs>
+      <polygon fill={`url(#sg-${seed})`} opacity="0.18" points={`0,${h} ${pts.join(' ')} ${w},${h}`} />
+      <polyline fill="none" stroke={color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" points={pts.join(' ')} />
+    </svg>
+  );
+}
+
+const cssVars = (o: Record<string, string>) => o as React.CSSProperties;
 
 export default function GhostNetwork() {
-  const { nodes, fetchTopology, error, isLoading } = useGhostStore();
+  const { nodes, fetchTopology } = useGhostStore();
+  const { activities, startPolling, stopPolling } = useActivityStore();
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [dims, setDims] = useState({ w: 1200, h: 700 });
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [layout, setLayout] = useState<'orbital' | 'grid'>('orbital');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [pulse, setPulse] = useState(true);
+  const [localLines, setLocalLines] = useState<FeedLine[]>([]);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const [tick, setTick] = useState(0);
+  const [zoomLabel, setZoomLabel] = useState('100%');
 
-  useEffect(() => { fetchTopology(); }, [fetchTopology]);
+  const stageBodyRef = useRef<HTMLDivElement>(null);
+  const orbitSpaceRef = useRef<HTMLDivElement>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+  const zoomRef = useRef({ z: 1, px: 0, py: 0 });
 
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const ro = new ResizeObserver(() => {
-      const r = containerRef.current!.getBoundingClientRect();
-      setDims({ w: r.width, h: r.height });
+  // live data lifecycle
+  useEffect(() => { fetchTopology(); startPolling(); return () => stopPolling(); }, [fetchTopology, startPolling, stopPolling]);
+  useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 1600); return () => clearInterval(t); }, []);
+
+  // map live agents → nexus agents
+  const agents = useMemo<NexAgent[]>(() => {
+    const live = nodes.filter((n) => n.type !== 'squad');
+    const nonCore = live.filter((n) => n.type !== 'core').sort((a, b) => a.name.localeCompare(b.name));
+    const innerCount = Math.min(6, Math.ceil(nonCore.length * 0.4));
+    return nonCore.map((n, i) => {
+      const squad = n.squad || 'DEV';
+      const status = deriveStatus(n);
+      const online = status !== 'idle';
+      const r = n.tasks_running ?? 0, q = n.queue_depth ?? 0;
+      const task = !online ? 'Offline — not on the wire'
+        : r > 0 ? `${r} task${r > 1 ? 's' : ''} running${q ? ` · ${q} queued` : ''}`
+        : q > 0 ? `${q} job${q > 1 ? 's' : ''} queued — standing by`
+        : 'Idle — awaiting directive';
+      const rl = SQUAD_ROLE[squad] || { role: 'Agent', domain: 'General' };
+      return {
+        id: n.id, name: n.name.toUpperCase(), role: rl.role, domain: rl.domain,
+        status, online, color: SQUAD_TONE[squad] || '#00e5ff', ring: i < innerCount ? 0 : 1,
+        load: clamp(0.1 + r * 0.22 + q * 0.04 + (online ? 0.08 : 0), 0.05, 0.98),
+        task, running: r, queue: q, squad,
+        tags: [squad.toLowerCase(), n.type, ...(r > 0 ? ['active'] : [])],
+        glyph: SQUAD_GLYPH[squad] || DEFAULT_GLYPH,
+      };
     });
-    ro.observe(containerRef.current);
-    return () => ro.disconnect();
+  }, [nodes]);
+
+  const coreNode = useMemo(() => nodes.find((n) => n.type === 'core'), [nodes]);
+  const byId = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a])), [agents]);
+  const selected = selectedId ? byId[selectedId] : null;
+
+  // live aggregates
+  const total = agents.length;
+  const onlineCount = agents.filter((a) => a.online).length;
+  const busyCount = agents.filter((a) => a.running > 0).length;
+  const running = agents.reduce((s, a) => s + a.running, 0);
+  const queue = agents.reduce((s, a) => s + a.queue, 0);
+  const onlinePct = total ? Math.round((onlineCount / total) * 100) : 0;
+  const coreActive = onlineCount > 0;
+
+  // ── selection helpers ──
+  const select = useCallback((id: string | null) => setSelectedId((cur) => (cur === id ? null : id)), []);
+
+  // ── command directive → real Hermes chat ──
+  const pushLine = useCallback((l: Omit<FeedLine, 'id' | 'ts' | 'fresh'> & { ts?: number }) => {
+    setLocalLines((p) => [...p, { id: `l-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, ts: l.ts ?? Date.now(), fresh: true, ...l }].slice(-60));
   }, []);
 
-  const { core, placed } = useMemo(() => {
-    const live = nodes.filter((n) => n.type !== 'squad');
-    const coreNode = live.find((n) => n.type === 'core');
-    const others = live.filter((n) => n.id !== coreNode?.id);
+  const runDirective = useCallback(async (textRaw: string) => {
+    const text = textRaw.trim();
+    if (!text || sending) return;
+    pushLine({ ag: 'OPERATOR', kind: 'jarvis', text: `“${text}”`, jarvis: true });
+    setSending(true);
+    try {
+      const resp = await sendHermesChat({ message: text });
+      const out = (resp.response || '(no response)').trim();
+      out.split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 10).forEach((ln, i) =>
+        pushLine({ ag: 'JARVIS', kind: 'jarvis', text: ln, jarvis: true, ts: Date.now() + i }));
+    } catch (e) {
+      pushLine({ ag: 'JARVIS', kind: 'warn', text: `directive failed · ${errMessage(e)}`, jarvis: false });
+    } finally {
+      setSending(false);
+    }
+  }, [sending, pushLine]);
 
-    const cx = dims.w / 2;
-    const cy = dims.h / 2;
-    const base = Math.min(dims.w, dims.h);
-    const widen = dims.w > dims.h ? Math.min(1.6, dims.w / dims.h) : 1;
-    const padX = 120;
-    const padY = 96;
-    const N = Math.max(others.length, 1);
+  const submit = () => { const v = input.trim(); if (!v) return; void runDirective(v); setInput(''); };
 
-    const items: Placed[] = others.map((n, i) => {
-      const ring = i % 2;
-      const rad = base * (ring === 0 ? 0.31 : 0.44);
-      const ang = -Math.PI / 2 + (i / N) * Math.PI * 2 + (hRand(n.id) - 0.5) * 0.13;
-      let x = cx + Math.cos(ang) * rad * widen;
-      let y = cy + Math.sin(ang) * rad;
-      x = Math.max(padX, Math.min(dims.w - padX, x));
-      y = Math.max(padY, Math.min(dims.h - padY, y));
-      return { node: n, x, y, ang, online: isOnline(n), busy: isBusy(n) };
+  // ── merged feed (live activity + local directives) ──
+  const feed = useMemo<FeedLine[]>(() => {
+    const norm = (t: number) => (t < 1e12 ? t * 1000 : t);
+    const acts: FeedLine[] = activities.map((a) => {
+      const s = (a.status || '').toLowerCase(), act = (a.action || '').toLowerCase();
+      const kind = s.includes('fail') || s.includes('error') || act.includes('block') ? 'warn'
+        : s.includes('complete') || s.includes('done') || act.includes('complete') ? 'ok'
+        : act.includes('spawn') || act.includes('start') || act.includes('claim') ? 'exec'
+        : act.includes('creat') || act.includes('updat') ? 'data' : 'info';
+      return { id: a.id, ts: norm(a.timestamp), ag: (a.agent || 'SYS').toUpperCase().slice(0, 10), kind, text: a.action + (a.status ? ` · ${a.status}` : ''), jarvis: false, fresh: false };
     });
-    return { core: coreNode, placed: items };
-  }, [nodes, dims]);
+    return [...acts, ...localLines].sort((x, y) => x.ts - y.ts).slice(-80);
+  }, [activities, localLines]);
 
-  const cx = dims.w / 2;
-  const cy = dims.h / 2;
-  const coreOnline = core ? isOnline(core) : placed.some((p) => p.online);
-  const onlineCount = placed.filter((p) => p.online).length;
-  const workingCount = placed.filter((p) => p.busy).length;
-  const selected = placed.find((p) => p.node.id === selectedId);
+  useEffect(() => { if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight; }, [feed.length]);
 
-  // Live feed for the comms panel: working agents first, then online, then rest.
-  const feed = useMemo(() => {
-    return [...placed]
-      .sort((a, b) => Number(b.busy) - Number(a.busy) || Number(b.online) - Number(a.online))
-      .slice(0, 6);
-  }, [placed]);
+  // ── zoom + pan (orbital) ──
+  const applyZoom = useCallback((smooth: boolean) => {
+    const s = orbitSpaceRef.current; if (!s) return;
+    const { z, px, py } = zoomRef.current;
+    s.style.transition = smooth ? 'transform .26s cubic-bezier(.2,.8,.2,1)' : 'none';
+    s.style.transform = `translate(${px}px, ${py}px) scale(${z})`;
+    setZoomLabel(Math.round(z * 100) + '%');
+  }, []);
+  const setZoom = useCallback((z: number, smooth: boolean) => { zoomRef.current.z = clamp(z, 0.45, 2.6); applyZoom(smooth); }, [applyZoom]);
+
+  useEffect(() => {
+    const stage = stageBodyRef.current; if (!stage) return;
+    const onWheel = (e: WheelEvent) => {
+      if (layoutRef.current === 'grid') return;
+      e.preventDefault();
+      const s = orbitSpaceRef.current; if (!s) return;
+      const r = s.getBoundingClientRect();
+      const cX = r.left + r.width / 2, cY = r.top + r.height / 2;
+      const z = zoomRef.current;
+      const nz = clamp(z.z * (e.deltaY < 0 ? 1.12 : 1 / 1.12), 0.45, 2.6);
+      const k = nz / z.z;
+      z.px -= (e.clientX - cX) * (k - 1); z.py -= (e.clientY - cY) * (k - 1); z.z = nz;
+      applyZoom(false);
+    };
+    let drag = false, sx = 0, sy = 0;
+    const onDown = (e: PointerEvent) => {
+      if (layoutRef.current === 'grid') return;
+      const t = e.target as HTMLElement;
+      if (t.closest('.agent-node') || t.closest('.zoomctl')) return;
+      drag = true; sx = e.clientX - zoomRef.current.px; sy = e.clientY - zoomRef.current.py;
+      stage.classList.add('grabbing'); stage.setPointerCapture(e.pointerId);
+    };
+    const onMove = (e: PointerEvent) => { if (!drag) return; zoomRef.current.px = e.clientX - sx; zoomRef.current.py = e.clientY - sy; applyZoom(false); };
+    const onUp = () => { drag = false; stage.classList.remove('grabbing'); };
+    stage.addEventListener('wheel', onWheel, { passive: false });
+    stage.addEventListener('pointerdown', onDown);
+    stage.addEventListener('pointermove', onMove);
+    stage.addEventListener('pointerup', onUp);
+    stage.addEventListener('pointercancel', onUp);
+    return () => {
+      stage.removeEventListener('wheel', onWheel);
+      stage.removeEventListener('pointerdown', onDown);
+      stage.removeEventListener('pointermove', onMove);
+      stage.removeEventListener('pointerup', onUp);
+      stage.removeEventListener('pointercancel', onUp);
+    };
+  }, [applyZoom]);
+
+  // rings for orbital
+  const rings = useMemo(() => {
+    const inner = agents.filter((a) => a.ring === 0);
+    const outer = agents.filter((a) => a.ring === 1);
+    return [
+      { cls: 'inner', rad: 0.34, off: -45, items: inner },
+      { cls: 'outer', rad: 0.52, off: -90, items: outer },
+    ];
+  }, [agents]);
+
+  // rail bars (real fleet %)
+  const bars = [
+    { k: 'ONLINE', v: onlinePct },
+    { k: 'BUSY', v: total ? Math.round((busyCount / total) * 100) : 0 },
+    { k: 'IDLE', v: total ? Math.round(((onlineCount - busyCount) / total) * 100) : 0 },
+    { k: 'QUEUE', v: Math.min(98, Math.round((queue / Math.max(20, total * 3)) * 100)) },
+  ];
+
+  // vitals (real)
+  const vitals = [
+    { id: 'agents', label: 'Agents Online', unit: `/ ${total}`, value: String(onlineCount), norm: total ? onlineCount / total : 0, up: true },
+    { id: 'run', label: 'Running', unit: 'jobs', value: String(running), norm: clamp(running / Math.max(8, total), 0.04, 0.98), up: false },
+    { id: 'queue', label: 'Queue Depth', unit: 'jobs', value: String(queue), norm: clamp(queue / Math.max(20, total * 3), 0.04, 0.98), up: false },
+    { id: 'online', label: 'Fleet Online', unit: '%', value: String(onlinePct), norm: onlinePct / 100, up: true },
+  ];
+
+  const ghostError = useGhostStore((s) => s.error);
 
   return (
-    <div
-      ref={containerRef}
-      className="absolute inset-0 overflow-hidden"
-      style={{ background: 'radial-gradient(ellipse at center, #0b0e16 0%, #060709 68%, #030304 100%)' }}
-      onClick={() => setSelectedId(null)}
-    >
-      <NexusStyles />
+    <div className="nexus" data-layout={layout}>
+      <div className="fx fx-grid" />
+      <div className="fx fx-scan" />
+      <div className="fx fx-vignette" />
 
-      {/* faint tech grid + isometric floor hint */}
-      <div
-        className="absolute inset-0 pointer-events-none opacity-[0.16]"
-        style={{
-          backgroundImage:
-            'linear-gradient(rgba(120,150,190,0.10) 1px, transparent 1px), linear-gradient(90deg, rgba(120,150,190,0.10) 1px, transparent 1px)',
-          backgroundSize: '48px 48px',
-          maskImage: 'radial-gradient(ellipse at center, #000 30%, transparent 82%)',
-        }}
-      />
+      <div className="main">
+        {/* LEFT RAIL — roster */}
+        <aside className="col rail">
+          <div className="col-head"><span>Agents</span><span className="n">// {total}</span></div>
+          <div className="col-body">
+            <ul className="roster">
+              {agents.map((a) => (
+                <li key={a.id} className={`ragent${selectedId === a.id ? ' sel' : ''}`} style={cssVars({ '--c': a.color })} onClick={() => select(a.id)}>
+                  <div className="ico"><svg viewBox="0 0 24 24"><path d={a.glyph} /></svg></div>
+                  <div className="meta">
+                    <div className="nm">{a.name}</div>
+                    <div className="rl">{a.role.toUpperCase()} · {a.domain}</div>
+                  </div>
+                  <div className="stat">
+                    <div className="s-badge">{STLABEL[a.status]}</div>
+                    <div className="load">{Math.round(a.load * 100)}%</div>
+                  </div>
+                </li>
+              ))}
+              {total === 0 && <li className="rl" style={{ padding: 12, fontFamily: 'var(--font-mono)', color: 'var(--txt-dim)' }}>No agents on the wire.</li>}
+            </ul>
+          </div>
+          <div className="rail-foot">
+            <div className="mini-label">Cluster Load</div>
+            <div className="bars">
+              {bars.map((b) => (
+                <div className="bar" key={b.k}>
+                  <span>{b.k}</span>
+                  <div className="track"><div className="fill" style={{ width: `${b.v}%` }} /></div>
+                  <span className="v">{b.v}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
 
-      {/* SVG: plasma streams + core rings */}
-      <svg className="absolute inset-0 w-full h-full" style={{ overflow: 'visible' }}>
-        <defs>
-          <filter id="nx-glow" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur stdDeviation="2.2" result="b" />
-            <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-          </filter>
-          <radialGradient id="nx-core-aura" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor={coreOnline ? '#ff7a3c' : CYAN} stopOpacity="0.5" />
-            <stop offset="34%" stopColor="#ff5a2c" stopOpacity="0.16" />
-            <stop offset="62%" stopColor={CYAN} stopOpacity="0.10" />
-            <stop offset="100%" stopColor="transparent" stopOpacity="0" />
-          </radialGradient>
-        </defs>
+        {/* CENTER STAGE */}
+        <section className="col stage">
+          <div className="stage-head">
+            <div className="stage-title"><b>AGENT MESH</b><span>// {coreNode ? coreNode.name : 'hermes'} core · {total} nodes</span></div>
+            <div className="stage-stats">
+              <div className="chip"><span className="dot" /><span className="k">AGENTS</span><b>{onlineCount}/{total}</b></div>
+              <div className="chip"><span className="dot cyan" /><span className="k">RUNNING</span><b>{running}</b></div>
+              <div className="chip"><span className={`dot ${queue ? 'amber' : ''}`} /><span className="k">QUEUE</span><b>{queue}</b></div>
+            </div>
+            <div className="view-toggle">
+              <button className={layout === 'orbital' ? 'on' : ''} onClick={() => setLayout('orbital')}>Orbital</button>
+              <button className={layout === 'grid' ? 'on' : ''} onClick={() => setLayout('grid')}>Grid</button>
+            </div>
+          </div>
 
-        {/* streams — three strands per agent for a fibre-bundle look */}
-        {placed.map((p) => {
-          const color = orbColor(p.online, p.busy);
-          const active = p.node.id === hoveredId || p.node.id === selectedId;
-          const baseOp = p.online ? 1 : 0.5;
-          const flowDur = p.busy ? 1.1 : p.online ? 2.4 : 4.2;
-          const strands = [
-            { off: 0.0, c: color, w: active ? 2.2 : p.busy ? 1.7 : 1.1, o: 0.85 },
-            { off: 0.05, c: CYAN, w: active ? 1.3 : 0.8, o: 0.4 },
-            { off: -0.045, c: color, w: active ? 1.3 : 0.8, o: 0.35 },
-          ];
-          return (
-            <g key={p.node.id} opacity={baseOp}>
-              {strands.map((s, k) => {
-                const d = stream(cx, cy, p.x, p.y, s.off);
-                return (
-                  <path
-                    key={k}
-                    d={d}
-                    fill="none"
-                    stroke={s.c}
-                    strokeWidth={s.w}
-                    opacity={active ? Math.min(1, s.o + 0.25) : s.o}
-                    strokeLinecap="round"
-                    filter="url(#nx-glow)"
-                    strokeDasharray={pulse ? '5 11' : undefined}
-                  >
-                    {pulse && (
-                      <animate
-                        attributeName="stroke-dashoffset"
-                        from="0"
-                        to="-32"
-                        dur={`${flowDur + k * 0.3}s`}
-                        repeatCount="indefinite"
-                      />
-                    )}
-                  </path>
-                );
-              })}
-              {/* bright travelling pulse for working agents */}
-              {pulse && p.busy && (
-                <circle r="3.2" fill="#fff" filter="url(#nx-glow)">
-                  <animateMotion dur="1.8s" repeatCount="indefinite" path={stream(cx, cy, p.x, p.y, 0)} />
-                  <animate attributeName="opacity" values="0;1;1;0" dur="1.8s" repeatCount="indefinite" />
-                </circle>
-              )}
-            </g>
-          );
-        })}
-
-        {/* central reactor rings */}
-        <g>
-          <circle cx={cx} cy={cy} r={170} fill="url(#nx-core-aura)" />
-          {/* outer tick ring */}
-          <circle cx={cx} cy={cy} r={104} fill="none" stroke={CYAN} strokeWidth="1" opacity="0.5"
-            strokeDasharray="2 7" filter="url(#nx-glow)">
-            <animateTransform attributeName="transform" type="rotate" from={`0 ${cx} ${cy}`} to={`360 ${cx} ${cy}`} dur="48s" repeatCount="indefinite" />
-          </circle>
-          {/* orange segmented ring */}
-          <circle cx={cx} cy={cy} r={84} fill="none" stroke="#ff6a3d" strokeWidth="3" opacity="0.85"
-            strokeDasharray="34 18" strokeLinecap="round" filter="url(#nx-glow)">
-            <animateTransform attributeName="transform" type="rotate" from={`0 ${cx} ${cy}`} to={`360 ${cx} ${cy}`} dur="16s" repeatCount="indefinite" />
-          </circle>
-          {/* cyan counter-rotating ring */}
-          <circle cx={cx} cy={cy} r={66} fill="none" stroke={CYAN} strokeWidth="2" opacity="0.7"
-            strokeDasharray="10 12" filter="url(#nx-glow)">
-            <animateTransform attributeName="transform" type="rotate" from={`360 ${cx} ${cy}`} to={`0 ${cx} ${cy}`} dur="11s" repeatCount="indefinite" />
-          </circle>
-          {/* inner orange ring */}
-          <circle cx={cx} cy={cy} r={46} fill="none" stroke="#ff7a3c" strokeWidth="2.5" opacity="0.9"
-            strokeDasharray="20 10" strokeLinecap="round" filter="url(#nx-glow)">
-            <animateTransform attributeName="transform" type="rotate" from={`0 ${cx} ${cy}`} to={`360 ${cx} ${cy}`} dur="7s" repeatCount="indefinite" />
-          </circle>
-          {/* hot core */}
-          <circle cx={cx} cy={cy} r={20} fill="#fff" filter="url(#nx-glow)">
-            <animate attributeName="r" values="17;23;17" dur="2.4s" repeatCount="indefinite" />
-            <animate attributeName="opacity" values="1;0.82;1" dur="2.4s" repeatCount="indefinite" />
-          </circle>
-          <circle cx={cx} cy={cy} r={32} fill="none" stroke={coreOnline ? '#ff7a3c' : CYAN} strokeWidth="6" opacity="0.5" filter="url(#nx-glow)" />
-        </g>
-      </svg>
-
-      {/* core label */}
-      <div
-        className="absolute font-mono whitespace-nowrap pointer-events-none text-center"
-        style={{ left: cx, top: cy + 118, transform: 'translateX(-50%)', textShadow: '0 1px 8px #000', zIndex: 35 }}
-      >
-        <span className="text-[13px] tracking-[0.24em] text-[#9aa3b5]">MAIN AGENT: </span>
-        <span className="text-[13px] tracking-[0.24em] font-bold" style={{ color: coreOnline ? '#ff6a3d' : CYAN }}>
-          {coreOnline ? 'ACTIVE' : 'STANDBY'}
-        </span>
-        <div className="text-[9px] tracking-[0.34em] text-[#566] mt-1">{core ? core.name.toUpperCase() : 'ORCHESTRATOR'}</div>
-      </div>
-
-      {/* Agent orbs */}
-      {placed.map((p) => {
-        const color = orbColor(p.online, p.busy);
-        const hovered = hoveredId === p.node.id;
-        const sel = selectedId === p.node.id;
-        const dimmed = (hoveredId || selectedId) && !hovered && !sel;
-        const size = (p.node.val >= 4 ? 72 : 60) + (p.busy ? 12 : 0);
-        const labelAbove = p.y > cy;
-        return (
-          <div
-            key={p.node.id}
-            className="absolute"
-            style={{
-              left: p.x, top: p.y, transform: 'translate(-50%, -50%)',
-              zIndex: hovered || sel ? 50 : 22,
-              opacity: dimmed ? 0.4 : 1, transition: 'opacity 0.25s', cursor: 'pointer',
-            }}
-            onMouseEnter={() => setHoveredId(p.node.id)}
-            onMouseLeave={() => setHoveredId(null)}
-            onClick={(e) => { e.stopPropagation(); setSelectedId((c) => (c === p.node.id ? null : p.node.id)); }}
-          >
-            {/* label + stacked status tags */}
-            <div
-              className="absolute left-1/2 flex flex-col items-center gap-1 pointer-events-none"
-              style={{ transform: 'translateX(-50%)', [labelAbove ? 'bottom' : 'top']: size * 0.5 + 14, [labelAbove ? 'top' : 'bottom']: 'auto' } as React.CSSProperties}
-            >
-              <span
-                className="font-mono text-[11px] tracking-[0.16em] whitespace-nowrap"
-                style={{ color: '#cfe6ff', textShadow: '0 1px 5px #000, 0 0 10px rgba(56,189,248,0.4)' }}
-              >
-                {p.node.name.toUpperCase().length > 16 ? p.node.name.toUpperCase().slice(0, 15) + '…' : p.node.name.toUpperCase()}
-              </span>
-              <div className="flex flex-col gap-[3px] items-stretch min-w-[78px]">
-                <Tag text={p.online ? 'ACTIVE' : 'INACTIVE'} on={p.online} />
-                <Tag text={p.busy ? 'WORKING' : 'IDLE'} on={p.busy} />
+          <div className="stage-body" ref={stageBodyRef}>
+            {/* orbital */}
+            <div className="orbital">
+              <div className="orbit-space" ref={orbitSpaceRef}>
+                {rings.map((r) => (
+                  <div className={`ring ${r.cls}`} key={r.cls}>
+                    {r.items.map((a, i) => {
+                      const ang = (360 / Math.max(r.items.length, 1)) * i + r.off;
+                      return (
+                        <div className="spoke" key={`sp-${a.id}`} style={cssVars({ '--a': `${ang}deg`, '--c': a.color, '--pdur': `${rnd(2.6, 4.2).toFixed(2)}s`, ...(a.status === 'idle' ? { opacity: '.18' } : {}) }) as React.CSSProperties} />
+                      );
+                    })}
+                    {r.items.map((a, i) => {
+                      const ang = (360 / Math.max(r.items.length, 1)) * i + r.off;
+                      return (
+                        <div className="node" key={a.id} style={{ ...cssVars({ '--a': `${ang}deg` }), transform: `rotate(${ang}deg) translateX(calc(var(--orbit) * ${r.rad}))` }}>
+                          <div className="spin"><div className="upr">
+                            <div className={`agent-node st-${a.status}${selectedId === a.id ? ' sel' : ''}`} style={cssVars({ '--c': a.color })} onClick={(e) => { e.stopPropagation(); select(a.id); }}>
+                              <div className="orb"><svg viewBox="0 0 24 24"><path d={a.glyph} /></svg></div>
+                              <div className="lab"><b className="glitch" data-t={a.name}>{a.name}</b><span>{a.role.toUpperCase()}</span></div>
+                            </div>
+                          </div></div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+                <div className="core">
+                  <div className="layer orb-halo" /><div className="layer orb-dial" /><div className="layer orb-ring-o" />
+                  <div className="layer orb-ring-r" /><div className="layer orb-ring-i" /><div className="layer orb-sweep" />
+                  <div className="layer orb-sphere" />
+                  <div className="layer orb-hot"><span className="flare-h" /><span className="flare-v" /></div>
+                  <div className="core-stat cs-top">{running} RUNNING</div>
+                  <div className="core-stat cs-bl">{queue} QUEUED</div>
+                  <div className="core-stat cs-br">{onlineCount}/{total} ACTIVE</div>
+                  <div className="core-label"><b>{coreNode ? coreNode.name.toUpperCase() : 'HERMES'}</b><span>ORCHESTRATOR · {coreActive ? 'ACTIVE' : 'STANDBY'}</span></div>
+                </div>
               </div>
             </div>
 
-            <PlasmaOrb size={size} color={color} online={p.online} busy={p.busy} highlight={hovered || sel} seed={hRand(p.node.id, 7)} />
-          </div>
-        );
-      })}
-
-      {/* ── HUD frame ── */}
-      <FrameCorners />
-
-      {/* Top-center status strip */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 font-mono text-[10px]">
-        <span className="px-2 py-1 border border-white/10 bg-[#050505]/80 text-[#b8b8b8]">
-          <span className="text-emerald-400">●</span> {onlineCount}/{placed.length} ONLINE
-        </span>
-        <span className="px-2 py-1 border border-white/10 bg-[#050505]/80 text-[#b8b8b8]">
-          <span style={{ color: '#ff6a3d' }}>◆</span> {workingCount} WORKING
-        </span>
-        <button
-          onClick={(e) => { e.stopPropagation(); setPulse((s) => !s); }}
-          className={`px-2 py-1 border bg-[#050505]/80 ${pulse ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#b8b8b8] hover:border-white/30'}`}
-        >
-          PULSE
-        </button>
-      </div>
-
-      {error && (
-        <div className="absolute bottom-3 right-3 z-[60] px-2 py-1 border border-red-400/40 bg-[#050505]/80 text-red-400 font-mono text-[10px]">
-          ⚠ {error}
-        </div>
-      )}
-      {isLoading && !error && (
-        <div className="absolute bottom-3 right-3 z-[60] px-2 py-1 border border-white/10 bg-[#050505]/80 text-[#b8b8b8] font-mono text-[10px]">
-          syncing…
-        </div>
-      )}
-
-      {/* ── AGENT COMMS panel (top-left) ── */}
-      <div
-        className="absolute top-10 left-4 z-[58] w-[218px] bg-[#05070b]/82 border border-white/12 backdrop-blur-[2px]"
-        style={{ boxShadow: '0 0 24px rgba(0,0,0,0.6)' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-2.5 h-[24px] flex items-center justify-between border-b border-white/10">
-          <span className="font-mono text-[9px] tracking-[0.22em] text-[#9aa3b5]">AGENT COMMS</span>
-          <span className="font-mono text-[8px] text-emerald-400">● LIVE</span>
-        </div>
-        <div className="p-2 flex flex-col gap-1.5">
-          {feed.length === 0 && <span className="font-mono text-[9px] text-[#545454]">awaiting agents…</span>}
-          {feed.map((p) => {
-            const c = orbColor(p.online, p.busy);
-            return (
-              <div key={p.node.id} className="flex items-center gap-1.5">
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: c, boxShadow: `0 0 6px ${c}`, flex: '0 0 auto' }} />
-                <span className="font-mono text-[9px] text-[#cdd3df] truncate flex-1">{p.node.name.toUpperCase()}</span>
-                <span className="font-mono text-[8px]" style={{ color: c }}>{p.busy ? 'WORKING' : p.online ? 'IDLE' : 'OFFLINE'}</span>
+            {/* grid */}
+            <div className="gridview">
+              <div className="cards">
+                {agents.map((a) => (
+                  <div className={`acard${selectedId === a.id ? ' sel' : ''}`} key={a.id} style={cssVars({ '--c': a.color })} onClick={() => select(a.id)}>
+                    <div className="ch">
+                      <div className="ci"><svg viewBox="0 0 24 24"><path d={a.glyph} /></svg></div>
+                      <div className="cn"><b>{a.name}</b><span>{a.role.toUpperCase()} · {STLABEL[a.status]}</span></div>
+                    </div>
+                    <div className="ctask">{a.task}</div>
+                    <Spark base={a.load} color={a.color} w={220} h={30} className="spark" tick={tick} />
+                    <div className="cfoot"><span>Q {a.queue} · {a.running} running</span><span className="lo">LOAD {Math.round(a.load * 100)}%</span></div>
+                  </div>
+                ))}
               </div>
-            );
-          })}
-        </div>
+            </div>
+
+            <div className="zoomctl">
+              <button title="Zoom in" onClick={() => setZoom(zoomRef.current.z * 1.2, true)}>+</button>
+              <button title="Zoom out" onClick={() => setZoom(zoomRef.current.z / 1.2, true)}>−</button>
+              <button className="zreset" title="Reset view" onClick={() => { zoomRef.current = { z: 1, px: 0, py: 0 }; applyZoom(true); }}>◎</button>
+              <div className="zlvl">{zoomLabel}</div>
+            </div>
+
+            <div className="stage-foot">
+              <span>MESH&nbsp;<b>{ghostError ? 'DEGRADED' : 'STABLE'}</b></span>
+              <span>AGENTS&nbsp;<b>{onlineCount}/{total}</b></span>
+              <span>RUNNING&nbsp;<b>{running}</b></span>
+              <span>QUEUE&nbsp;<b>{queue}</b></span>
+            </div>
+          </div>
+        </section>
+
+        {/* RIGHT PANEL */}
+        <aside className="col panel">
+          <div className="panel-detail">
+            <div className="col-head"><span>{selected ? 'Agent Detail' : 'System Telemetry'}</span><span className="n">// {selected ? 'live' : 'realtime'}</span></div>
+            {!selected && (
+              <div className="vitals">
+                {vitals.map((v) => (
+                  <div className={`vital${v.up ? ' up' : ''}`} key={v.id}>
+                    <div className="vl">{v.label}</div>
+                    <div className="vv">{v.value}<small>{v.unit}</small></div>
+                    <Spark base={v.norm} color={v.up ? 'var(--accent-2)' : 'var(--accent)'} w={60} h={22} className="vspark" tick={tick} />
+                  </div>
+                ))}
+              </div>
+            )}
+            {selected && (
+              <div className="detail" style={cssVars({ '--c': selected.color })}>
+                <div className="dh">
+                  <div className="di" style={cssVars({ '--c': selected.color })}><svg viewBox="0 0 24 24"><path d={selected.glyph} /></svg></div>
+                  <div className="dt"><b>{selected.name}</b><span>{selected.role.toUpperCase()} · {selected.squad}</span></div>
+                  <button className="dclose" onClick={() => setSelectedId(null)}>▢ CLOSE</button>
+                </div>
+                <div className="dtask">
+                  <div className="tl">Current Directive · {STLABEL[selected.status]}</div>
+                  <div className="tx">{selected.task}</div>
+                  <div className="prog"><i style={{ width: `${Math.round(selected.load * 100)}%` }} /></div>
+                </div>
+                <div className="dstats">
+                  <div className="dstat"><div className="l">Load</div><div className="v" style={{ color: selected.color }}>{Math.round(selected.load * 100)}%</div></div>
+                  <div className="dstat"><div className="l">Queue</div><div className="v">{selected.queue}</div></div>
+                  <div className="dstat"><div className="l">Running</div><div className="v">{selected.running}</div></div>
+                </div>
+                <div className="dtags">{selected.tags.map((t) => <span className="dtag" key={t}>#{t}</span>)}</div>
+                <div className="dctrl" style={cssVars({ '--accent': selected.color })}>
+                  <button className="dbtn" disabled={sending} onClick={() => runDirective(`Give me a status report on ${selected.name}`)}>Status</button>
+                  <button className="dbtn warn" disabled={sending} onClick={() => runDirective(`Pause agent ${selected.name}`)}>Pause</button>
+                  <button className="dbtn danger" disabled={sending} onClick={() => runDirective(`Reassign the workload of ${selected.name}`)}>Reassign</button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="feed-wrap">
+            <div className="feed-head"><span>Activity Stream</span><span className="live"><span className="dot red" />LIVE</span></div>
+            <div className="feed" ref={feedRef}>
+              {feed.length === 0 && <div className="fline"><span className="tx" style={{ color: 'var(--txt-dim)' }}>Awaiting activity from the bridge…</span></div>}
+              {feed.map((l) => (
+                <div className={`fline${l.fresh ? ' fresh' : ''}${l.jarvis ? ' jarvis' : ''}`} key={l.id}>
+                  <span className="ts">{(() => { const d = new Date(l.ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; })()}</span>
+                  <span className="ag">{l.ag}</span>
+                  <span className={`kk ${l.jarvis ? 'jarvis' : l.kind}`}>{l.jarvis ? 'CORE' : l.kind.toUpperCase()}</span>
+                  <span className="tx">{l.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
       </div>
 
-      {/* ── AGENT TRACKING panel (top-right) ── */}
-      <div
-        className="absolute top-10 right-4 z-[58] w-[208px] bg-[#05070b]/82 border border-white/12 backdrop-blur-[2px]"
-        style={{ boxShadow: '0 0 24px rgba(0,0,0,0.6)' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-2.5 h-[24px] flex items-center justify-between border-b border-white/10">
-          <span className="font-mono text-[9px] tracking-[0.2em] text-[#9aa3b5]">AGENT TRACKING</span>
-          <span className="font-mono text-[8px] text-[#566]">{placed.length} NODES</span>
+      {/* COMMAND BAR — real directives to the orchestrator */}
+      <footer className="commandbar">
+        <div className="cmd-pre"><span className="pr">JARVIS</span><span>▷</span></div>
+        <input
+          className="cmd-input" type="text" autoComplete="off" spellCheck={false}
+          value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+          placeholder={sending ? 'Orchestrator is thinking…' : 'Issue a directive to the orchestrator —  e.g.  “give me a status report”'}
+          disabled={sending}
+        />
+        <div className="chips">
+          <button className="qchip" onClick={() => setInput('Give me a status report')}>status report</button>
+          <button className="qchip" onClick={() => setInput('List all active agents and what they are working on')}>list agents</button>
+          <button className="qchip" onClick={() => setInput('What tasks are queued right now?')}>queue</button>
         </div>
-        <div className="p-2 grid grid-cols-8 gap-1.5">
-          {placed.map((p) => {
-            const c = orbColor(p.online, p.busy);
-            const on = p.node.id === hoveredId || p.node.id === selectedId;
-            return (
-              <button
-                key={p.node.id}
-                title={p.node.name}
-                onMouseEnter={() => setHoveredId(p.node.id)}
-                onMouseLeave={() => setHoveredId(null)}
-                onClick={(e) => { e.stopPropagation(); setSelectedId((x) => (x === p.node.id ? null : p.node.id)); }}
-                style={{
-                  height: 12, borderRadius: 2, background: c,
-                  opacity: p.online ? 1 : 0.5,
-                  outline: on ? `1.5px solid ${c}` : 'none', outlineOffset: 1,
-                  boxShadow: p.busy ? `0 0 6px ${c}` : 'none',
-                  animation: p.busy ? 'nx-orbpulse 1.4s ease-in-out infinite' : 'none',
-                }}
-              />
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Selected detail card */}
-      {selected && (
-        <div
-          className="absolute bottom-4 left-4 z-[70] w-[240px] bg-[#05070b]/95 border"
-          style={{ borderColor: orbColor(selected.online, selected.busy) + '66' }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="px-3 h-[28px] flex items-center justify-between border-b" style={{ borderColor: orbColor(selected.online, selected.busy) + '33' }}>
-            <span className="font-mono text-[10px] tracking-[0.2em] uppercase font-bold" style={{ color: orbColor(selected.online, selected.busy) }}>
-              {selected.node.name}
-            </span>
-            <button onClick={() => setSelectedId(null)} className="text-[#545454] hover:text-white text-[11px]">✕</button>
-          </div>
-          <div className="p-3 font-mono text-[10px] text-[#b8b8b8] flex flex-col gap-1">
-            <Row k="POWER" val={selected.online ? 'ACTIVE' : 'INACTIVE'} color={selected.online ? '#10b981' : '#545454'} />
-            <Row k="WORK" val={selected.busy ? 'WORKING' : 'IDLE'} color={selected.busy ? '#ff6a3d' : '#545454'} />
-            <Row k="SQUAD" val={selected.node.squad || '—'} />
-            <Row k="RUNNING" val={String(selected.node.tasks_running ?? 0)} />
-            <Row k="QUEUE" val={String(selected.node.queue_depth ?? 0)} />
-            <Row k="TYPE" val={selected.node.type} />
-          </div>
-        </div>
-      )}
-
-      {placed.length === 0 && !isLoading && (
-        <div className="absolute left-1/2 z-[55] font-mono text-[11px] text-[#545454]" style={{ top: '66%', transform: 'translateX(-50%)' }}>
-          No agents on the wire. Create one in Agent Hub.
-        </div>
-      )}
+        <button className="cmd-send" onClick={submit} disabled={sending || !input.trim()}>{sending ? '···' : 'Execute'}</button>
+      </footer>
     </div>
-  );
-}
-
-// ── Particle-burst orb ────────────────────────────────────────────────────
-function PlasmaOrb({ size, color, online, busy, highlight, seed }: { size: number; color: string; online: boolean; busy: boolean; highlight: boolean; seed: number }) {
-  const plumes = [0, 1, 2, 3];
-  return (
-    <div style={{ position: 'relative', width: size, height: size }}>
-      {/* wide outer glow */}
-      <div style={{
-        position: 'absolute', inset: -size * 0.5, borderRadius: '50%',
-        background: `radial-gradient(circle, ${color}55 0%, ${color}18 42%, transparent 72%)`,
-        filter: 'blur(4px)', opacity: online ? (highlight ? 1 : 0.8) : 0.45,
-      }} />
-      {/* turbulent plumes (nebula feel) — static offset, flickering opacity */}
-      {plumes.map((i) => {
-        const a = (seed * 6.28 + i * 1.57);
-        const r = size * (0.14 + ((i % 2) * 0.11));
-        return (
-          <div key={i} style={{
-            position: 'absolute', left: '50%', top: '50%',
-            width: size * 0.6, height: size * 0.6, borderRadius: '50%',
-            background: `radial-gradient(circle at 50% 50%, ${i % 2 ? color : '#fff'}aa, transparent 60%)`,
-            transform: `translate(-50%,-50%) translate(${Math.cos(a) * r}px, ${Math.sin(a) * r * 0.85}px)`,
-            mixBlendMode: 'screen', filter: 'blur(2.5px)',
-            animation: `nx-plume ${1.8 + i * 0.6}s ease-in-out ${i * 0.4}s infinite`,
-            opacity: online ? 0.85 : 0.45,
-          }} />
-        );
-      })}
-      {/* body */}
-      <div style={{
-        position: 'absolute', inset: 0, borderRadius: '50%',
-        background: `radial-gradient(circle at 40% 36%, #fff 0%, ${color} 40%, ${color}33 76%, transparent 92%)`,
-        boxShadow: `0 0 ${busy ? 30 : 18}px ${color}${busy ? 'dd' : '99'}, inset 0 0 16px ${color}cc`,
-        border: `1px solid ${color}${highlight ? 'ff' : '99'}`,
-        animation: busy ? 'nx-orbpulse 1.4s ease-in-out infinite' : online ? 'nx-orbpulse 3.2s ease-in-out infinite' : 'none',
-        opacity: online ? 1 : 0.72,
-      }} />
-      {/* hot center */}
-      <div style={{
-        position: 'absolute', left: '50%', top: '42%', transform: 'translate(-50%,-50%)',
-        width: size * 0.3, height: size * 0.3, borderRadius: '50%',
-        background: 'radial-gradient(circle, #fff, transparent 65%)',
-      }} />
-    </div>
-  );
-}
-
-function Tag({ text, on }: { text: string; on: boolean }) {
-  // Reference uses amber/orange tags; muted when the dimension is off.
-  const bg = on ? 'rgba(255,106,61,0.22)' : 'rgba(148,120,90,0.14)';
-  const bd = on ? 'rgba(255,106,61,0.6)' : 'rgba(160,130,100,0.4)';
-  const fg = on ? '#ffb088' : '#a08a73';
-  return (
-    <span
-      className="font-mono text-[8px] tracking-[0.16em] px-1.5 py-[2px] leading-none uppercase text-center"
-      style={{ color: fg, background: bg, border: `1px solid ${bd}` }}
-    >
-      {text}
-    </span>
-  );
-}
-
-function FrameCorners() {
-  const c = 'rgba(120,150,190,0.45)';
-  const common = 'absolute w-6 h-6 pointer-events-none';
-  return (
-    <div className="absolute inset-0 pointer-events-none z-[57]">
-      <div className="absolute inset-2 border border-white/[0.06]" />
-      <div className={`${common} top-2 left-2`} style={{ borderTop: `2px solid ${c}`, borderLeft: `2px solid ${c}` }} />
-      <div className={`${common} top-2 right-2`} style={{ borderTop: `2px solid ${c}`, borderRight: `2px solid ${c}` }} />
-      <div className={`${common} bottom-2 left-2`} style={{ borderBottom: `2px solid ${c}`, borderLeft: `2px solid ${c}` }} />
-      <div className={`${common} bottom-2 right-2`} style={{ borderBottom: `2px solid ${c}`, borderRight: `2px solid ${c}` }} />
-    </div>
-  );
-}
-
-function Row({ k, val, color }: { k: string; val: string; color?: string }) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-[#545454]">{k}</span>
-      <span style={{ color: color || '#fff' }}>{val}</span>
-    </div>
-  );
-}
-
-function NexusStyles() {
-  return (
-    <style>{`
-      @keyframes nx-orbpulse { 0%,100%{ transform: scale(1); } 50%{ transform: scale(1.06); } }
-      @keyframes nx-plume { 0%,100%{ opacity: 0.35; } 50%{ opacity: 0.95; } }
-    `}</style>
   );
 }
