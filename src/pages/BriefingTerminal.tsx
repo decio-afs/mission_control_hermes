@@ -1,4 +1,4 @@
-// Briefing Terminal — live Hermes data via useBriefingStore.
+﻿// Briefing Terminal — live Hermes data via useBriefingStore.
 import { useEffect, useMemo, useState } from 'react';
 import { Panel, Pill } from '../components/cyberpunk/ui';
 import { useBriefingStore } from '../stores/useBriefingStore';
@@ -108,7 +108,7 @@ export default function BriefingTerminal() {
     briefing.fin.forEach((m) => push('#10b981', 'FIN', m));
     if (briefing.fin.length) push('#545454', '', '');
 
-    briefing.arc.forEach((m) => push('#a855f7', 'ARC', m));
+    briefing.arc.forEach((m) => push('#ff795e', 'ARC', m));
     if (briefing.arc.length) push('#545454', '', '');
 
     briefing.forecast.forEach((m) => push('#38bdf8', 'FORECAST', m));

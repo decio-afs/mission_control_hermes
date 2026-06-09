@@ -5,10 +5,12 @@
 // real agents from useGhostStore; the activity stream is the live Hermes feed;
 // and the command bar issues real directives to the orchestrator via sendHermesChat.
 import { useState, useEffect, useRef, useMemo, useCallback, useId } from 'react';
+import { Link } from 'react-router-dom';
 import { useGhostStore, type GhostNode } from '../stores/useGhostStore';
 import { useActivityStore } from '../stores/useActivityStore';
 import { useAgentDrilldownStore } from '../stores/useAgentDrilldownStore';
-import { sendHermesChat, errMessage } from '../lib/api';
+import { useAgentCrud } from '../components/useAgentCrud';
+import { useChatStore } from '../stores/useChatStore';
 import './ghostNexus.css';
 
 // ── static lookups ─────────────────────────────────────────────────────────
@@ -16,7 +18,7 @@ type Status = 'working' | 'active' | 'idle' | 'warn';
 const STLABEL: Record<Status, string> = { working: 'EXEC', active: 'LIVE', idle: 'IDLE', warn: 'WARN' };
 
 const SQUAD_TONE: Record<string, string> = {
-  CORE: '#00e5ff', SEC: '#ff2d6b', INTEL: '#9d7bff', INFRA: '#0aff9d', CONT: '#ffb627', DEV: '#00e5ff',
+  CORE: '#f64e6e', SEC: '#ef4444', INTEL: '#ff795e', INFRA: '#10b981', CONT: '#f59e0b', DEV: '#38bdf8',
 };
 const SQUAD_ROLE: Record<string, { role: string; domain: string }> = {
   CORE: { role: 'Orchestrator', domain: 'Coordination · Routing' },
@@ -94,20 +96,28 @@ export default function GhostNetwork() {
   const { nodes, fetchTopology } = useGhostStore();
   const { activities, startPolling, stopPolling } = useActivityStore();
   const openDrilldown = useAgentDrilldownStore((s) => s.open);
+  // Agent CRUD (create / edit / delete / spawn) — lives in the detail panel now
+  // that the orbital roster + detail panel replace the old Registry table.
+  const crud = useAgentCrud();
+  // Shared chat/session store — the command bar drives the active Hermes session
+  // (persisted + resumable), so the conversation survives tab switches and is the
+  // same session you see in Ghost Comms.
+  const {
+    init: initChat, send: sendChat, sending, activeMessages,
+    sessions: chatSessions, activeId: chatActiveId, isDraft: chatIsDraft,
+    selectSession, newSession,
+  } = useChatStore();
 
-  const [layout, setLayout] = useState<'orbital' | 'grid'>('orbital');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [localLines, setLocalLines] = useState<FeedLine[]>([]);
   const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
   const [paused, setPaused] = useState(false);
   const [zoomLabel, setZoomLabel] = useState('100%');
+
+  useEffect(() => { initChat(); }, [initChat]);
 
   const stageBodyRef = useRef<HTMLDivElement>(null);
   const orbitSpaceRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
-  const layoutRef = useRef(layout);
-  layoutRef.current = layout;
   const zoomRef = useRef({ z: 1, px: 0, py: 0 });
 
   // live data lifecycle
@@ -138,7 +148,7 @@ export default function GhostNetwork() {
       const rl = SQUAD_ROLE[squad] || { role: 'Agent', domain: 'General' };
       return {
         id: n.id, name: n.name.toUpperCase(), role: rl.role, domain: rl.domain,
-        status, online, color: SQUAD_TONE[squad] || '#00e5ff', ring: i < innerCount ? 0 : 1,
+        status, online, color: SQUAD_TONE[squad] || '#f64e6e', ring: i < innerCount ? 0 : 1,
         load: clamp(0.1 + r * 0.22 + q * 0.04 + (online ? 0.08 : 0), 0.05, 0.98),
         task, running: r, queue: q, squad,
         tags: [squad.toLowerCase(), n.type, ...(r > 0 ? ['active'] : [])],
@@ -163,36 +173,18 @@ export default function GhostNetwork() {
   // ── selection helpers ──
   const select = useCallback((id: string | null) => setSelectedId((cur) => (cur === id ? null : id)), []);
 
-  // ── command directive → real Hermes chat ──
-  const pushLine = useCallback((l: Omit<FeedLine, 'id' | 'ts' | 'fresh'> & { ts?: number }) => {
-    setLocalLines((p) => [...p, { id: `l-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, ts: l.ts ?? Date.now(), fresh: true, ...l }].slice(-60));
-  }, []);
-
-  const runDirective = useCallback(async (textRaw: string) => {
+  // ── command directive → shared Hermes chat session ──
+  const runDirective = useCallback((textRaw: string) => {
     const text = textRaw.trim();
     if (!text || sending) return;
-    pushLine({ ag: 'OPERATOR', kind: 'jarvis', text: `“${text}”`, jarvis: true });
-    setSending(true);
-    try {
-      const resp = await sendHermesChat({ message: text });
-      // Strip Hermes CLI noise (toolset warnings, the trailing session_id line)
-      // so only the orchestrator's actual answer reaches the feed.
-      const lines = (resp.response || '')
-        .split('\n')
-        .map((s) => s.trim())
-        .filter((ln) => ln && !/^Warning:/i.test(ln) && !/^session_id\s*:/i.test(ln));
-      const out = lines.length ? lines.slice(0, 14) : ['(no output — directive completed)'];
-      out.forEach((ln, i) => pushLine({ ag: 'ARCAN', kind: 'jarvis', text: ln, jarvis: true, ts: Date.now() + i }));
-    } catch (e) {
-      pushLine({ ag: 'ARCAN', kind: 'warn', text: `directive failed · ${errMessage(e)}`, jarvis: false });
-    } finally {
-      setSending(false);
-    }
-  }, [sending, pushLine]);
+    void sendChat(text);
+  }, [sending, sendChat]);
 
-  const submit = () => { const v = input.trim(); if (!v) return; void runDirective(v); setInput(''); };
+  const submit = () => { const v = input.trim(); if (!v) return; runDirective(v); setInput(''); };
 
-  // ── merged feed (live activity + local directives) ──
+  const chatMessages = activeMessages();
+
+  // ── merged feed (live activity + the active chat conversation) ──
   const feed = useMemo<FeedLine[]>(() => {
     const norm = (t: number) => (t < 1e12 ? t * 1000 : t);
     const acts: FeedLine[] = activities.map((a) => {
@@ -203,8 +195,17 @@ export default function GhostNetwork() {
         : act.includes('creat') || act.includes('updat') ? 'data' : 'info';
       return { id: a.id, ts: norm(a.timestamp), ag: (a.agent || 'SYS').toUpperCase().slice(0, 10), kind, text: a.action + (a.status ? ` · ${a.status}` : ''), jarvis: false, fresh: false };
     });
-    return [...acts, ...localLines].sort((x, y) => x.ts - y.ts).slice(-80);
-  }, [activities, localLines]);
+    const chat: FeedLine[] = chatMessages.map((m) => ({
+      id: m.id,
+      ts: Date.parse(m.timestamp) || 0,
+      ag: m.role === 'user' ? 'OPERATOR' : m.role === 'assistant' ? 'ARCAN' : 'SYSTEM',
+      kind: m.error ? 'warn' : 'jarvis',
+      text: m.role === 'user' ? `“${m.content}”` : m.content,
+      jarvis: m.role !== 'system',
+      fresh: false,
+    }));
+    return [...acts, ...chat].sort((x, y) => x.ts - y.ts).slice(-80);
+  }, [activities, chatMessages]);
 
   useEffect(() => { if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight; }, [feed.length, sending]);
 
@@ -221,7 +222,6 @@ export default function GhostNetwork() {
   useEffect(() => {
     const stage = stageBodyRef.current; if (!stage) return;
     const onWheel = (e: WheelEvent) => {
-      if (layoutRef.current === 'grid') return;
       e.preventDefault();
       const s = orbitSpaceRef.current; if (!s) return;
       const r = s.getBoundingClientRect();
@@ -234,7 +234,6 @@ export default function GhostNetwork() {
     };
     let drag = false, sx = 0, sy = 0;
     const onDown = (e: PointerEvent) => {
-      if (layoutRef.current === 'grid') return;
       const t = e.target as HTMLElement;
       if (t.closest('.agent-node') || t.closest('.zoomctl')) return;
       drag = true; sx = e.clientX - zoomRef.current.px; sy = e.clientY - zoomRef.current.py;
@@ -285,7 +284,7 @@ export default function GhostNetwork() {
   const ghostError = useGhostStore((s) => s.error);
 
   return (
-    <div className={`nexus${paused ? ' paused' : ''}`} data-layout={layout}>
+    <div className={`nexus${paused ? ' paused' : ''}`} data-layout="orbital">
       <div className="fx fx-grid" />
       <div className="fx fx-scan" />
       <div className="fx fx-vignette" />
@@ -336,15 +335,11 @@ export default function GhostNetwork() {
               <div className="chip"><span className={`dot ${queue ? 'amber' : ''}`} /><span className="k">QUEUE</span><b>{queue}</b></div>
             </div>
             <div className="view-toggle">
-              <button className={layout === 'orbital' ? 'on' : ''} onClick={() => setLayout('orbital')}>Orbital</button>
-              <button className={layout === 'grid' ? 'on' : ''} onClick={() => setLayout('grid')}>Grid</button>
+              <button onClick={() => crud.openCreate()} title="Create a new agent">+ Agent</button>
             </div>
           </div>
 
           <div className="stage-body" ref={stageBodyRef}>
-            {/* orbital — only mounted in orbital view so its heavy core/ring
-                animations don't run (or consume GPU layers) while in grid view */}
-            {layout === 'orbital' && (
             <div className="orbital">
               <div className="orbit-space" ref={orbitSpaceRef}>
                 {rings.map((r) => (
@@ -382,27 +377,6 @@ export default function GhostNetwork() {
                 </div>
               </div>
             </div>
-            )}
-
-            {/* grid — only mounted in grid view so the 13 card sparklines don't
-                run their intervals while you're on the orbital view */}
-            {layout === 'grid' && (
-            <div className="gridview">
-              <div className="cards">
-                {agents.map((a) => (
-                  <div className={`acard${selectedId === a.id ? ' sel' : ''}`} key={a.id} style={cssVars({ '--c': a.color })} onClick={() => select(a.id)}>
-                    <div className="ch">
-                      <div className="ci"><svg viewBox="0 0 24 24"><path d={a.glyph} /></svg></div>
-                      <div className="cn"><b>{a.name}</b><span>{a.role.toUpperCase()} · {STLABEL[a.status]}</span></div>
-                    </div>
-                    <div className="ctask">{a.task}</div>
-                    <Spark base={a.load} color={a.color} w={220} h={30} className="spark" />
-                    <div className="cfoot"><span>Q {a.queue} · {a.running} running</span><span className="lo">LOAD {Math.round(a.load * 100)}%</span></div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            )}
 
             <div className="zoomctl">
               <button title="Zoom in" onClick={() => setZoom(zoomRef.current.z * 1.2, true)}>+</button>
@@ -459,6 +433,12 @@ export default function GhostNetwork() {
                   <button className="dbtn warn" disabled={sending} onClick={() => runDirective(`Pause agent ${selected.name}`)}>Pause</button>
                   <button className="dbtn danger" disabled={sending} onClick={() => runDirective(`Reassign the workload of ${selected.name}`)}>Reassign</button>
                 </div>
+                {/* Agent management — the CRUD that used to live in the Registry tab. */}
+                <div className="dctrl" style={cssVars({ '--accent': selected.color })}>
+                  <button className="dbtn" onClick={() => { const n = nodes.find((x) => x.id === selected.id); if (n) crud.openSpawn(n); }}>Spawn</button>
+                  <button className="dbtn" onClick={() => { const n = nodes.find((x) => x.id === selected.id); if (n) crud.openEdit(n); }}>Edit</button>
+                  <button className="dbtn danger" onClick={() => { const n = nodes.find((x) => x.id === selected.id); if (n) crud.openDelete(n); }}>Delete</button>
+                </div>
               </div>
             )}
           </div>
@@ -490,6 +470,32 @@ export default function GhostNetwork() {
 
       {/* COMMAND BAR — real directives to the orchestrator */}
       <footer className="commandbar">
+        {/* Session control — the active session is shared with Ghost Comms and
+            persists across tabs. Switch, start fresh, or pop out to the full
+            workspace for history + projects. */}
+        <div className="flex items-center gap-1 mr-1 shrink-0">
+          <select
+            value={chatIsDraft ? '' : (chatActiveId || '')}
+            onChange={(e) => { const v = e.target.value; if (v) void selectSession(v); }}
+            title="Active session"
+            className="max-w-[150px] bg-[#0b0b0b] border border-white/15 text-[10px] font-mono text-[#b8b8b8] px-1.5 py-1 outline-none focus:border-[#f64e6e]"
+          >
+            {chatIsDraft && <option value="">◆ New Session</option>}
+            {chatSessions.slice(0, 30).map((s) => (
+              <option key={s.id} value={s.id}>{(s.title || s.preview || s.id).slice(0, 40)}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => newSession()}
+            title="New session"
+            className="h-[26px] w-[26px] shrink-0 flex items-center justify-center border border-white/15 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e] text-[13px]"
+          >+</button>
+          <Link
+            to="/chat"
+            title="Open in Ghost Comms — full history, rename & projects"
+            className="h-[26px] w-[26px] shrink-0 flex items-center justify-center border border-white/15 text-[#b8b8b8] hover:border-sky-400 hover:text-sky-400 text-[12px]"
+          >⤢</Link>
+        </div>
         <div className="cmd-pre"><span className="pr">ARCAN</span><span>▷</span></div>
         <input
           className="cmd-input" type="text" autoComplete="off" spellCheck={false}
@@ -504,6 +510,9 @@ export default function GhostNetwork() {
         </div>
         <button className="cmd-send" onClick={submit} disabled={sending || !input.trim()}>{sending ? '···' : 'Execute'}</button>
       </footer>
+
+      {/* Agent CRUD modals (create / edit / delete / spawn) */}
+      {crud.modals}
     </div>
   );
 }

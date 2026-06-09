@@ -364,10 +364,57 @@ export interface ChatAttachmentUpload {
   data: string;
 }
 
-export async function sendHermesChat(payload: { message: string; model?: string; skills?: string[]; attachments?: ChatAttachmentUpload[] }): Promise<{ response: string; stderr: string; success: boolean }> {
+export async function sendHermesChat(payload: { message: string; model?: string; skills?: string[]; attachments?: ChatAttachmentUpload[]; session_id?: string }): Promise<{ response: string; session_id: string | null; stderr: string; success: boolean }> {
   // Chat round-trips invoke the model and can take well over the 30s client
   // default; the bridge allows 180s, so match it here to avoid premature aborts.
   const { data } = await bridge.post('/api/hermes/chat', payload, { timeout: 185000 });
+  return data;
+}
+
+// ── Hermes sessions (the persistent SQLite session store) ──────────────────
+export interface HermesSession {
+  id: string;
+  title: string;
+  preview: string;
+  last_active: string;
+  source: string;
+}
+
+export interface HermesSessionMessage {
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  timestamp?: string | number | null;
+  tool_name?: string | null;
+}
+
+export interface HermesSessionDetail {
+  id: string;
+  title: string;
+  cwd: string | null;
+  source: string | null;
+  message_count: number;
+  started_at: string | number | null;
+  ended_at: string | number | null;
+  messages: HermesSessionMessage[];
+}
+
+export async function getHermesSessions(limit = 100, source?: string): Promise<{ sessions: HermesSession[] }> {
+  const { data } = await bridge.get('/api/hermes/sessions', { params: { limit, ...(source ? { source } : {}) } });
+  return data;
+}
+
+export async function getHermesSession(id: string): Promise<HermesSessionDetail> {
+  const { data } = await bridge.get(`/api/hermes/sessions/${encodeURIComponent(id)}`);
+  return data;
+}
+
+export async function renameHermesSession(id: string, title: string) {
+  const { data } = await bridge.post(`/api/hermes/sessions/${encodeURIComponent(id)}/rename`, { title });
+  return data;
+}
+
+export async function deleteHermesSession(id: string) {
+  const { data } = await bridge.delete(`/api/hermes/sessions/${encodeURIComponent(id)}`);
   return data;
 }
 

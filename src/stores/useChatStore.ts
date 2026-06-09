@@ -1,10 +1,32 @@
 import { create } from 'zustand';
+import {
+  getHermesSessions,
+  getHermesSession,
+  renameHermesSession,
+  deleteHermesSession,
+  sendHermesChat,
+  errMessage,
+  type HermesSession,
+  type ChatAttachmentUpload,
+} from '../lib/api';
+
+// ─────────────────────────────────────────────────────────────────────────
+// Shared chat/session store — backed by Hermes' real session store.
+//
+// The session LIST and conversation TRANSCRIPTS come from the bridge (Hermes
+// `sessions list` / `export`), so they're persistent and shared with cron,
+// telegram, the CLI, etc. Sending a message resumes the active session via
+// `--resume`, giving real conversational memory. Projects are an app-side
+// grouping (folders you create) persisted in localStorage — Hermes has no
+// native project concept. This single store powers both Ghost Comms (the full
+// workspace) and Ghost Network's command bar, so the active conversation
+// survives tab switches.
+// ─────────────────────────────────────────────────────────────────────────
 
 export interface ChatAttachment {
   name: string;
   mime: string;
   size: number;
-  /** data: URL — present for images so they can render inline; may be dropped on persist for large blobs */
   dataUrl?: string;
 }
 
@@ -17,165 +39,274 @@ export interface ChatMessage {
   attachments?: ChatAttachment[];
 }
 
-export interface ChatSession {
+export interface Project {
   id: string;
   name: string;
-  messages: ChatMessage[];
-  createdAt: string;
-  updatedAt: string;
 }
 
-interface ChatStore {
-  sessions: ChatSession[];
-  activeSessionId: string | null;
-  getActiveSession: () => ChatSession | null;
-  createSession: (name?: string) => string;
-  switchSession: (id: string) => void;
-  renameSession: (id: string, name: string) => void;
-  deleteSession: (id: string) => void;
-  addMessage: (sessionId: string, message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
-  loadFromStorage: () => void;
-  saveToStorage: () => void;
+/** Transcript key for a brand-new session whose Hermes id doesn't exist yet. */
+const DRAFT_KEY = '__draft__';
+const META_KEY = 'mc-chat-meta';
+
+interface PersistedMeta {
+  activeId: string | null;
+  isDraft: boolean;
+  projects: Project[];
+  assignments: Record<string, string>;
 }
 
-const STORAGE_KEY = 'mc-chat-sessions';
+interface ChatState {
+  sessions: HermesSession[];
+  activeId: string | null;
+  isDraft: boolean;
+  transcripts: Record<string, ChatMessage[]>;
+  projects: Project[];
+  assignments: Record<string, string>; // sessionId -> projectId
+  loadingList: boolean;
+  loadingTranscript: boolean;
+  sending: boolean;
+  error: string | null;
 
-function generateId(): string {
-  return `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  init: () => void;
+  fetchSessions: () => Promise<void>;
+  selectSession: (id: string) => Promise<void>;
+  newSession: () => void;
+  send: (text: string, opts?: { attachments?: ChatAttachment[]; model?: string; skills?: string[] }) => Promise<void>;
+  rename: (id: string, title: string) => Promise<void>;
+  remove: (id: string) => Promise<void>;
+
+  createProject: (name: string) => void;
+  renameProject: (id: string, name: string) => void;
+  deleteProject: (id: string) => void;
+  assign: (sessionId: string, projectId: string | null) => void;
+
+  activeMessages: () => ChatMessage[];
+  activeTitle: () => string;
 }
 
-function now(): string {
+function uid(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function tsNow(): string {
   return new Date().toISOString();
 }
 
-function createDefaultSession(): ChatSession {
-  return {
-    id: generateId(),
-    name: 'New Session',
-    messages: [
-      {
-        id: 'welcome',
-        role: 'system',
-        content: 'GHOST LEGION COMMS // Chat interface active. Type a message to dispatch to Hermes.',
-        timestamp: now(),
-      },
-    ],
-    createdAt: now(),
-    updatedAt: now(),
-  };
+function toMessage(role: ChatMessage['role'], content: string, extra?: Partial<ChatMessage>): ChatMessage {
+  return { id: uid('m'), role, content, timestamp: tsNow(), ...extra };
 }
 
-export const useChatStore = create<ChatStore>((set, get) => ({
-  sessions: [],
-  activeSessionId: null,
-
-  getActiveSession: () => {
-    const { sessions, activeSessionId } = get();
-    if (!activeSessionId) return null;
-    return sessions.find((s) => s.id === activeSessionId) || null;
-  },
-
-  createSession: (name?: string) => {
-    const session = createDefaultSession();
-    if (name) session.name = name;
-    set((state) => {
-      const newSessions = [session, ...state.sessions];
-      return { sessions: newSessions, activeSessionId: session.id };
-    });
-    get().saveToStorage();
-    return session.id;
-  },
-
-  switchSession: (id: string) => {
-    set({ activeSessionId: id });
-  },
-
-  renameSession: (id: string, name: string) => {
-    set((state) => ({
-      sessions: state.sessions.map((s) =>
-        s.id === id ? { ...s, name, updatedAt: now() } : s
-      ),
-    }));
-    get().saveToStorage();
-  },
-
-  deleteSession: (id: string) => {
-    set((state) => {
-      const newSessions = state.sessions.filter((s) => s.id !== id);
-      let newActiveId = state.activeSessionId;
-      if (state.activeSessionId === id) {
-        newActiveId = newSessions.length > 0 ? newSessions[0].id : null;
-      }
-      return { sessions: newSessions, activeSessionId: newActiveId };
-    });
-    get().saveToStorage();
-  },
-
-  addMessage: (sessionId: string, message: Omit<ChatMessage, 'id' | 'timestamp'>) => {
-    const msg: ChatMessage = {
-      ...message,
-      id: `m-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-      timestamp: now(),
-    };
-    set((state) => ({
-      sessions: state.sessions.map((s) =>
-        s.id === sessionId
-          ? { ...s, messages: [...s.messages, msg], updatedAt: now() }
-          : s
-      ),
-    }));
-    get().saveToStorage();
-  },
-
-  loadFromStorage: () => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as ChatSession[];
-        const sessions = Array.isArray(parsed) ? parsed : [];
-        set({
-          sessions,
-          activeSessionId: sessions.length > 0 ? sessions[0].id : null,
-        });
-      } else {
-        // First time — create default session
-        const session = createDefaultSession();
-        set({ sessions: [session], activeSessionId: session.id });
-        localStorage.setItem(STORAGE_KEY, JSON.stringify([session]));
-      }
-    } catch {
-      const session = createDefaultSession();
-      set({ sessions: [session], activeSessionId: session.id });
+function loadMeta(): PersistedMeta {
+  try {
+    const raw = localStorage.getItem(META_KEY);
+    if (raw) {
+      const p = JSON.parse(raw) as Partial<PersistedMeta>;
+      return {
+        activeId: p.activeId ?? null,
+        isDraft: p.isDraft ?? false,
+        projects: Array.isArray(p.projects) ? p.projects : [],
+        assignments: p.assignments && typeof p.assignments === 'object' ? p.assignments : {},
+      };
     }
-  },
+  } catch { /* ignore bad cache */ }
+  return { activeId: null, isDraft: false, projects: [], assignments: {} };
+}
 
-  saveToStorage: () => {
-    const { sessions } = get();
+export const useChatStore = create<ChatState>((set, get) => {
+  // Both Ghost Comms and Ghost Network mount this; only hydrate once.
+  let didInit = false;
+
+  function persist() {
+    const { activeId, isDraft, projects, assignments } = get();
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-    } catch {
-      // Likely a quota overflow from inline image data URLs. Retry with the heavy
-      // dataUrl blobs stripped so the conversation text/structure still persists.
+      localStorage.setItem(META_KEY, JSON.stringify({ activeId, isDraft, projects, assignments } as PersistedMeta));
+    } catch { /* quota — non-fatal */ }
+  }
+
+  function appendMessage(key: string, msg: ChatMessage) {
+    set((s) => ({ transcripts: { ...s.transcripts, [key]: [...(s.transcripts[key] || []), msg] } }));
+  }
+
+  return {
+    sessions: [],
+    activeId: null,
+    isDraft: false,
+    transcripts: {},
+    projects: [],
+    assignments: {},
+    loadingList: false,
+    loadingTranscript: false,
+    sending: false,
+    error: null,
+
+    init: () => {
+      if (didInit) return;
+      didInit = true;
+      const meta = loadMeta();
+      set({
+        projects: meta.projects,
+        assignments: meta.assignments,
+        activeId: meta.activeId,
+        isDraft: meta.isDraft,
+      });
+      void get().fetchSessions();
+      // Re-hydrate the previously active conversation from Hermes.
+      if (meta.activeId && !meta.isDraft) void get().selectSession(meta.activeId);
+      else if (!meta.activeId) get().newSession();
+    },
+
+    fetchSessions: async () => {
+      set({ loadingList: true });
       try {
-        const lite = sessions.map((s) => ({
-          ...s,
-          messages: s.messages.map((m) =>
-            m.attachments
-              ? {
-                  ...m,
-                  attachments: m.attachments.map((a): ChatAttachment => ({
-                    name: a.name,
-                    mime: a.mime,
-                    size: a.size,
-                  })),
-                }
-              : m
-          ),
-        }));
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(lite));
-      } catch {
-        // give up silently
+        const { sessions } = await getHermesSessions(100);
+        set({ sessions, loadingList: false, error: null });
+      } catch (e) {
+        set({ loadingList: false, error: errMessage(e) });
       }
-    }
-  },
-}));
+    },
+
+    selectSession: async (id: string) => {
+      set({ activeId: id, isDraft: false });
+      persist();
+      if (get().transcripts[id]) return; // cached
+      set({ loadingTranscript: true });
+      try {
+        const detail = await getHermesSession(id);
+        const msgs: ChatMessage[] = (detail.messages || [])
+          .filter((m) => (m.role === 'user' || m.role === 'assistant') && (m.content || '').trim())
+          .map((m) =>
+            toMessage(m.role as ChatMessage['role'], m.content, {
+              timestamp: typeof m.timestamp === 'string' ? m.timestamp : tsNow(),
+            }),
+          );
+        set((s) => ({ transcripts: { ...s.transcripts, [id]: msgs }, loadingTranscript: false }));
+      } catch (e) {
+        set({ loadingTranscript: false, error: errMessage(e) });
+      }
+    },
+
+    newSession: () => {
+      set((s) => ({ activeId: null, isDraft: true, transcripts: { ...s.transcripts, [DRAFT_KEY]: [] } }));
+      persist();
+    },
+
+    send: async (text, opts) => {
+      const trimmed = text.trim();
+      const attachments = opts?.attachments || [];
+      if ((!trimmed && attachments.length === 0) || get().sending) return;
+
+      const { isDraft, activeId } = get();
+      const key = isDraft || !activeId ? DRAFT_KEY : activeId;
+
+      appendMessage(key, toMessage('user', trimmed || '(attachment only)', {
+        attachments: attachments.length ? attachments : undefined,
+      }));
+      set({ sending: true, error: null });
+
+      try {
+        const uploads: ChatAttachmentUpload[] = attachments
+          .filter((a) => a.dataUrl)
+          .map((a) => ({ name: a.name, mime: a.mime, data: a.dataUrl as string }));
+        const resp = await sendHermesChat({
+          message: trimmed || 'See attached file(s).',
+          session_id: isDraft || !activeId ? undefined : activeId,
+          attachments: uploads.length ? uploads : undefined,
+          model: opts?.model,
+          skills: opts?.skills,
+        });
+
+        const newId = resp.session_id;
+        // For a brand-new session, adopt the returned id and migrate the draft
+        // transcript onto it so the conversation keeps its history.
+        if ((isDraft || !activeId) && newId) {
+          set((s) => {
+            const transcripts = { ...s.transcripts };
+            const draftMsgs = transcripts[DRAFT_KEY] || [];
+            delete transcripts[DRAFT_KEY];
+            transcripts[newId] = draftMsgs;
+            return { transcripts, activeId: newId, isDraft: false };
+          });
+        }
+        const finalKey = newId || key;
+        appendMessage(finalKey, toMessage('assistant', resp.response || '(no response)'));
+        persist();
+        void get().fetchSessions();
+      } catch (e) {
+        appendMessage(get().activeId || DRAFT_KEY, toMessage('system', `COMMS FAILURE: ${errMessage(e)}`, { error: true }));
+      } finally {
+        set({ sending: false });
+      }
+    },
+
+    rename: async (id, title) => {
+      const clean = title.trim();
+      if (!clean) return;
+      try {
+        await renameHermesSession(id, clean);
+        set((s) => ({ sessions: s.sessions.map((x) => (x.id === id ? { ...x, title: clean } : x)) }));
+      } catch (e) {
+        set({ error: errMessage(e) });
+      }
+    },
+
+    remove: async (id) => {
+      try {
+        await deleteHermesSession(id);
+      } catch (e) {
+        set({ error: errMessage(e) });
+        return;
+      }
+      set((s) => {
+        const sessions = s.sessions.filter((x) => x.id !== id);
+        const transcripts = { ...s.transcripts };
+        delete transcripts[id];
+        const assignments = { ...s.assignments };
+        delete assignments[id];
+        return { sessions, transcripts, assignments };
+      });
+      if (get().activeId === id) get().newSession();
+      persist();
+    },
+
+    createProject: (name) => {
+      const clean = name.trim();
+      if (!clean) return;
+      set((s) => ({ projects: [...s.projects, { id: uid('p'), name: clean }] }));
+      persist();
+    },
+    renameProject: (id, name) => {
+      const clean = name.trim();
+      if (!clean) return;
+      set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, name: clean } : p)) }));
+      persist();
+    },
+    deleteProject: (id) => {
+      set((s) => {
+        const assignments = { ...s.assignments };
+        for (const sid of Object.keys(assignments)) if (assignments[sid] === id) delete assignments[sid];
+        return { projects: s.projects.filter((p) => p.id !== id), assignments };
+      });
+      persist();
+    },
+    assign: (sessionId, projectId) => {
+      set((s) => {
+        const assignments = { ...s.assignments };
+        if (projectId) assignments[sessionId] = projectId;
+        else delete assignments[sessionId];
+        return { assignments };
+      });
+      persist();
+    },
+
+    activeMessages: () => {
+      const { transcripts, activeId, isDraft } = get();
+      return transcripts[isDraft || !activeId ? DRAFT_KEY : activeId] || [];
+    },
+    activeTitle: () => {
+      const { sessions, activeId, isDraft } = get();
+      if (isDraft || !activeId) return 'New Session';
+      const s = sessions.find((x) => x.id === activeId);
+      return s?.title || s?.preview || activeId;
+    },
+  };
+});

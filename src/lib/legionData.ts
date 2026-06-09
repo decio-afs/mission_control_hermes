@@ -1,4 +1,4 @@
-// Static "Ghost Legion" design data for the showcase modules ported from the
+﻿// Static "Ghost Legion" design data for the showcase modules ported from the
 // original Mission Control design (Intel, Factory, Briefing, Builder, Archives,
 // Broadcast). These modules have NO Hermes data source, so they render this
 // curated demo data to preserve the full design. The Hermes-backed modules
@@ -7,7 +7,7 @@
 export const SQUAD_META: Record<string, { hue: number; label: string; color: string }> = {
   CORE: { hue: 350, label: 'CORE', color: '#f64e6e' },
   SEC: { hue: 0, label: 'SECURITY', color: '#ef4444' },
-  INTEL: { hue: 270, label: 'INTEL', color: '#a855f7' },
+  INTEL: { hue: 270, label: 'INTEL', color: '#ff795e' },
   INFRA: { hue: 160, label: 'INFRA', color: '#10b981' },
   CONT: { hue: 35, label: 'CONTENT', color: '#f59e0b' },
   DEV: { hue: 210, label: 'DEV', color: '#38bdf8' },

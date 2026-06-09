@@ -105,7 +105,7 @@ export default function CommandPalette() {
         id: `agent-${n.id}`,
         title: n.name,
         sub: `${(n.type || 'agent').toUpperCase()}${n.squad ? ` · ${n.squad}` : ''} · ${(n.status || 'unknown').toUpperCase()}`,
-        path: '/agent-hub',
+        path: '/network',
         keywords: `${n.name} ${n.squad || ''} ${n.type} agent`,
       }));
 
@@ -120,7 +120,7 @@ export default function CommandPalette() {
 
     const actions: Item[] = [
       { kind: 'action', id: 'act-new-task', title: 'New Task', sub: 'Open Operations queue', path: '/operations', keywords: 'new task create operations queue' },
-      { kind: 'action', id: 'act-new-agent', title: 'New Agent', sub: 'Open Agent Hub', path: '/agent-hub', keywords: 'new agent create registry' },
+      { kind: 'action', id: 'act-new-agent', title: 'New Agent', sub: 'Open Ghost Network', path: '/network', keywords: 'new agent create registry hub' },
       { kind: 'action', id: 'act-chat', title: 'Ghost Comms', sub: 'Talk to Hermes', path: '/chat', keywords: 'chat ask hermes comms talk' },
     ];
 

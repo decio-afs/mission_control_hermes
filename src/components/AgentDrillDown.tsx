@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+﻿import { useEffect, useMemo } from 'react';
 import { useAgentDrilldownStore } from '../stores/useAgentDrilldownStore';
 import { useGhostStore } from '../stores/useGhostStore';
 import { useTaskStore } from '../stores/useTaskStore';
@@ -6,7 +6,7 @@ import { useActivityStore } from '../stores/useActivityStore';
 import { Label, Pill } from './cyberpunk/ui';
 
 const SQUAD_COLORS: Record<string, string> = {
-  CORE: '#f64e6e', SEC: '#ef4444', INTEL: '#a855f7', INFRA: '#10b981', CONT: '#f59e0b', DEV: '#38bdf8',
+  CORE: '#f64e6e', SEC: '#ef4444', INTEL: '#ff795e', INFRA: '#10b981', CONT: '#f59e0b', DEV: '#38bdf8',
 };
 
 function statusTone(status?: string): 'good' | 'warn' | 'neutral' | 'bad' | 'info' {

@@ -1,4 +1,4 @@
-// Broadcast Uplink — channel stats + publishing queue. Ported from the zip.
+﻿// Broadcast Uplink — channel stats + publishing queue. Ported from the zip.
 // NOTE: static demo data (no Hermes source).
 import { Panel, Pill, Sparkline } from '../components/cyberpunk/ui';
 import { DEMO_NOTE } from '../lib/legionData';
@@ -7,7 +7,7 @@ import DemoBadge from '../components/DemoBadge';
 const channels = [
   { p: 'INSTAGRAM', handle: '@daoss', reach: '84.2k', eng: '4.1%', c: '#f64e6e' },
   { p: 'X / TWITTER', handle: '@daoss_agency', reach: '31.7k', eng: '2.8%', c: '#38bdf8' },
-  { p: 'TIKTOK', handle: '@ghostlegion', reach: '247k', eng: '6.7%', c: '#a855f7' },
+  { p: 'TIKTOK', handle: '@ghostlegion', reach: '247k', eng: '6.7%', c: '#ff795e' },
   { p: 'LINKEDIN', handle: 'DA Agency', reach: '12.1k', eng: '5.2%', c: '#10b981' },
 ];
 

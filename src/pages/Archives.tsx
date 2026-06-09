@@ -1,4 +1,4 @@
-// Archives — mission history browser + query editor. Ported from the zip design.
+﻿// Archives — mission history browser + query editor. Ported from the zip design.
 // NOTE: static demo data (no Hermes source).
 import { useState } from 'react';
 import { Panel, Label } from '../components/cyberpunk/ui';
@@ -40,7 +40,7 @@ export default function Archives() {
           <div className="mt-2 flex flex-col gap-1">
             {['prompt-tuning · 72% → 81%', 'retrieval-k · 5 → 8', 'voice · weaver++', 'reject-rate · 93%'].map((x) => (
               <div key={x} className="text-[10px] font-mono text-[#b8b8b8] flex items-center gap-1">
-                <span className="w-1 h-1 bg-[#a855f7]" />{x}
+                <span className="w-1 h-1 bg-[#ff795e]" />{x}
               </div>
             ))}
           </div>

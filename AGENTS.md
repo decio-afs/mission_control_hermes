@@ -43,6 +43,18 @@ Electron window (React app, file://)  ──HTTP──▶  hermes-bridge.py (Fas
 | `GET  /api/hermes/cron`                    | `hermes cron list`                      |
 | `POST /api/hermes/cron/{id}/run`           | `hermes cron run <id>`                  |
 | `POST /api/hermes/spawn`                   | `hermes chat -q <goal> [-m … -s …]`     |
+| `POST /api/hermes/chat`                    | `hermes chat -q <msg> -Q [--resume <id>]` |
+| `GET  /api/hermes/sessions`                | `hermes sessions list` (table → JSON)   |
+| `GET  /api/hermes/sessions/{id}`           | `hermes sessions export --session-id <id> -` |
+| `POST /api/hermes/sessions/{id}/rename`    | `hermes sessions rename <id> <title>`   |
+| `DELETE /api/hermes/sessions/{id}`         | `hermes sessions delete --yes <id>`     |
+
+Chat is session-aware: `/chat` accepts an optional `session_id` (adds `--resume`)
+and returns the `session_id` it parsed from Hermes' stderr, so conversations have
+real memory and survive restarts. The shared `useChatStore` lists/opens/renames
+those sessions and powers both Ghost Comms (`/chat`, the full workspace with
+project folders) and Ghost Network's command bar (same active session across tabs).
+"Projects" are an app-side grouping in localStorage — Hermes has no native concept.
 
 Hermes JSON shapes are mirrored 1:1 in `src/lib/api.ts` (`HermesAgent`,
 `HermesTask`, `HermesCronJob`, `HermesStatus`). If a CLI shape changes, update
@@ -85,19 +97,27 @@ src/
 │   ├── cyberpunk/ui.tsx    # Design system (Panel, Pill, Stat, Ring, Sparkline…)
 │   └── DemoBadge.tsx       # "DEMO DATA" marker for non-Hermes modules
 ├── pages/
-│   ├── Cyberpunk.tsx       # LIVE "Hermes Command" — primary ops dashboard (/command)
-│   ├── GhostNetwork.tsx    # LIVE sprite-room agent visualization (/network)
+│   ├── GhostNetwork.tsx    # LIVE default dashboard (/network) — orbital agent
+│   │                       #   mesh + per-agent detail/CRUD panel + orchestrator chat
 │   ├── WarRoom.tsx         # LIVE Hermes metrics & task activity (/war-room)
 │   ├── OperationsCenter.tsx# LIVE kanban queue + cron management (/operations)
-│   ├── IntelligenceDeck.tsx# DEMO trend signal
-│   ├── ContentFactory.tsx  # DEMO carousel composer
-│   ├── BriefingTerminal.tsx# DEMO daily brief
-│   ├── WorkflowBuilder.tsx # DEMO node graph
-│   ├── Archives.tsx        # DEMO mission history
-│   └── BroadcastUplink.tsx # DEMO channel stats
-├── App.tsx                 # Routes (default → /command)
+│   ├── ChatTerminal.tsx    # LIVE multi-session orchestrator chat (/chat)
+│   ├── BriefingTerminal.tsx# LIVE daily brief (/briefing)
+│   ├── LeadTracker.tsx     # /leads
+│   ├── ContentFactory.tsx  # DEMO carousel composer (/factory)
+│   └── DesignLab.tsx       # DEMO showcase — Intel/Builder/Archives/Broadcast (/design-lab)
+├── components/
+│   └── useAgentCrud.tsx    # Hook: agent create/edit/delete/spawn modals (was the
+│                           #   Agent Hub page; now Ghost Network's detail-panel CRUD)
+├── App.tsx                 # Routes (default → /network)
 └── main.tsx                # Entry
 ```
+
+Hermes Command (`Cyberpunk.tsx`) and Agent Hub (`AgentHub.tsx`) were removed: Command
+was a redundant mashup of the other live tabs, and Agent Hub's roster + CRUD were
+folded into Ghost Network — the orbital roster lists agents, and selecting one opens a
+detail panel with INSPECT + Spawn / Edit / Delete (plus a `+ Agent` create button in
+the stage header). `/command`, `/cyberpunk`, `/agent-hub` all → `/network`.
 
 ---
 
@@ -105,17 +125,16 @@ src/
 
 | Path            | Page              | Data    | Notes                              |
 |-----------------|-------------------|---------|------------------------------------|
-| `/` `/command`  | Hermes Command    | LIVE    | Default. Agents, tasks, cron, dispatch. |
-| `/network`      | Ghost Network     | LIVE    | Live agent topology (sprite room). |
+| `/` `/network`  | Ghost Network     | LIVE    | **Default.** Orbital agent mesh, per-agent detail panel (inspect + CRUD), orchestrator chat. |
 | `/war-room`     | War Room          | LIVE    | Derived live metrics + task log.   |
-| `/operations`   | Operations Center | LIVE    | Kanban CRUD + cron run.            |
-| `/intelligence` | Intel Deck        | DEMO    | Trend signal (static demo data).   |
-| `/factory`      | Content Factory   | DEMO    | Carousel composer (static).        |
+| `/operations`   | Operations Center | LIVE    | Kanban board: full task lifecycle, decompose, cron CRUD. |
+| `/chat`         | Ghost Comms       | LIVE    | Multi-session orchestrator chat (attachments, voice). |
 | `/briefing`     | Briefing Terminal | LIVE    | Daily brief (live Hermes data).    |
-| `/builder`      | Workflow Builder  | DEMO    | Node graph (static).               |
-| `/archives`     | Archives          | DEMO    | Mission history (static).          |
-| `/broadcast`    | Broadcast Uplink  | DEMO    | Channel stats (static).            |
-| `*`             | → `/command`      | —       | Catch-all + legacy `/cyberpunk` redirect. |
+| `/leads`        | Lead Tracker      | LIVE    | Lead pipeline.                     |
+| `/factory`      | Content Factory   | DEMO    | Carousel composer (static).        |
+| `/design-lab`   | Design Lab        | DEMO    | Consolidated showcase (Intel/Builder/Archives/Broadcast). |
+| `/command` `/cyberpunk` `/agent-hub` | → `/network` | — | Removed Hermes Command + Agent Hub (folded into Ghost Network). |
+| `*`             | → `/network`      | —       | Catch-all.                          |
 
 DEMO modules are the original design ported faithfully; they have no Hermes data
 source, so they render `src/lib/legionData.ts` and show a `DEMO DATA` badge.

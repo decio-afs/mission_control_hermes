@@ -1,8 +1,6 @@
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
-import Cyberpunk from './pages/Cyberpunk';
 import GhostNetwork from './pages/GhostNetwork';
-import AgentHub from './pages/AgentHub';
 import WarRoom from './pages/WarRoom';
 import OperationsCenter from './pages/OperationsCenter';
 import ContentFactory from './pages/ContentFactory';
@@ -18,9 +16,7 @@ function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/network" replace />} />
           {/* Live Hermes-backed modules */}
-          <Route path="command" element={<Cyberpunk />} />
           <Route path="network" element={<GhostNetwork />} />
-          <Route path="agent-hub" element={<AgentHub />} />
           <Route path="war-room" element={<WarRoom />} />
           <Route path="operations" element={<OperationsCenter />} />
           <Route path="leads" element={<LeadTracker />} />
@@ -35,7 +31,12 @@ function App() {
           <Route path="archives" element={<Navigate to="/design-lab?tab=archives" replace />} />
           <Route path="broadcast" element={<Navigate to="/design-lab?tab=broadcast" replace />} />
           <Route path="signal-intelligence" element={<Navigate to="/war-room" replace />} />
-          <Route path="cyberpunk" element={<Navigate to="/command" replace />} />
+          {/* Hermes Command was a redundant mashup of the other live tabs, and
+              Agent Hub's CRUD was folded into Ghost Network (agent detail panel
+              + Orbital roster). All three redirect to the Ghost Network dashboard. */}
+          <Route path="command" element={<Navigate to="/network" replace />} />
+          <Route path="cyberpunk" element={<Navigate to="/network" replace />} />
+          <Route path="agent-hub" element={<Navigate to="/network" replace />} />
           <Route path="*" element={<Navigate to="/network" replace />} />
         </Route>
       </Routes>

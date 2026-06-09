@@ -1,4 +1,4 @@
-// Workflow Builder — node graph editor. Ported from the zip design.
+﻿// Workflow Builder — node graph editor. Ported from the zip design.
 // NOTE: static demo graph (no Hermes source).
 import { Panel, Label } from '../components/cyberpunk/ui';
 import { DEMO_NOTE } from '../lib/legionData';
@@ -9,7 +9,7 @@ const accent = '#f64e6e';
 interface WfNode { id: string; x: number; y: number; label: string; sub: string; color: string; }
 
 const nodes: WfNode[] = [
-  { id: 'n1', x: 60, y: 100, label: 'TREND DETECT', sub: 'THE PROPHET', color: '#a855f7' },
+  { id: 'n1', x: 60, y: 100, label: 'TREND DETECT', sub: 'THE PROPHET', color: '#ff795e' },
   { id: 'n2', x: 260, y: 60, label: 'SCORE VIAB.', sub: '≥60', color: '#38bdf8' },
   { id: 'n3', x: 260, y: 160, label: 'SENTIMENT', sub: 'MORNINGSTAR', color: '#38bdf8' },
   { id: 'n4', x: 460, y: 110, label: 'COMPOSE', sub: 'THE WEAVER', color: '#f64e6e' },

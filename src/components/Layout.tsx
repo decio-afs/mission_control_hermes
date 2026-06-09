@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+﻿import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { useGhostStore } from '../stores/useGhostStore';
 import { useSystemStore } from '../stores/useSystemStore';
@@ -14,7 +14,7 @@ import AgentDrillDown from './AgentDrillDown';
 //   amber:  '#f59e0b',
 //   emerald:'#10b981',
 //   sky:    '#38bdf8',
-//   violet: '#a855f7',
+//   violet: '#ff795e',
 // };
 
 const DEFAULT_TWEAKS = { accent: '#f64e6e', density: 'cozy', scanlines: 'soft', motion: 'high' };
@@ -147,7 +147,7 @@ export default function Layout() {
           <div className="grid grid-cols-5 gap-1 mb-2">
             {agents.slice(0, 25).map(a => {
               const squadColor = a.squad ? {
-                CORE: '#f64e6e', SEC: '#ef4444', INTEL: '#a855f7', INFRA: '#10b981', CONT: '#f59e0b', DEV: '#38bdf8'
+                CORE: '#f64e6e', SEC: '#ef4444', INTEL: '#ff795e', INFRA: '#10b981', CONT: '#f59e0b', DEV: '#38bdf8'
               }[a.squad] || '#1a1a1a' : '#1a1a1a';
               const isOnline = a.status === 'active' || a.status === 'online';
               const isBusy = (a.tasks_running ?? 0) > 0;

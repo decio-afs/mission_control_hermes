@@ -9,15 +9,15 @@ export interface NavModule {
 }
 
 export const MODULES: NavModule[] = [
-  { id: 'command',    path: '/command',    label: 'Hermes Command',  short: 'Command',  num: '00' },
-  { id: 'network',    path: '/network',    label: 'Ghost Network',   short: 'Network',  num: '01' },
-  { id: 'agenthub',   path: '/agent-hub',  label: 'Agent Hub',       short: 'Agents',   num: '02' },
-  { id: 'warroom',    path: '/war-room',   label: 'War Room',        short: 'War Room', num: '03' },
-  { id: 'operations', path: '/operations', label: 'Operations',      short: 'Ops',      num: '04' },
-  { id: 'chat',       path: '/chat',       label: 'Ghost Comms',     short: 'Chat',     num: '05' },
-  { id: 'factory',    path: '/factory',    label: 'Content Factory', short: 'Factory',  num: '06' },
-  { id: 'briefing',   path: '/briefing',   label: 'Briefing',        short: 'Brief',    num: '07' },
-  { id: 'leads',      path: '/leads',      label: 'Lead Tracker',    short: 'Leads',    num: '08' },
+  // Ghost Network is the primary dashboard: the live agent mesh, plus the
+  // agent Registry (CRUD) and the orchestrator command bar all in one place.
+  { id: 'network',    path: '/network',    label: 'Ghost Network',   short: 'Network',  num: '00' },
+  { id: 'warroom',    path: '/war-room',   label: 'War Room',        short: 'War Room', num: '01' },
+  { id: 'operations', path: '/operations', label: 'Operations',      short: 'Ops',      num: '02' },
+  { id: 'chat',       path: '/chat',       label: 'Ghost Comms',     short: 'Chat',     num: '03' },
+  { id: 'factory',    path: '/factory',    label: 'Content Factory', short: 'Factory',  num: '04' },
+  { id: 'briefing',   path: '/briefing',   label: 'Briefing',        short: 'Brief',    num: '05' },
+  { id: 'leads',      path: '/leads',      label: 'Lead Tracker',    short: 'Leads',    num: '06' },
   // Consolidated design showcase (Intel Deck, Workflow Builder, Archives, Broadcast Uplink).
-  { id: 'designlab',  path: '/design-lab', label: 'Design Lab',      short: 'Lab',      num: '09' },
+  { id: 'designlab',  path: '/design-lab', label: 'Design Lab',      short: 'Lab',      num: '07' },
 ];

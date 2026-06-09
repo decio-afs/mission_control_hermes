@@ -228,6 +228,13 @@ class ChatPayload(BaseModel):
     model: Optional[str] = None
     skills: Optional[list[str]] = None
     attachments: Optional[list[AttachmentPayload]] = None
+    # When set, the message continues an existing Hermes session (real memory)
+    # via `hermes chat --resume <session_id>`. Omitted → starts a new session.
+    session_id: Optional[str] = None
+
+
+class SessionRenamePayload(BaseModel):
+    title: str
 
 
 class AgentCreatePayload(BaseModel):
@@ -832,16 +839,143 @@ def chat_message(payload: ChatPayload):
         message = (message + note).strip()
 
     args = ["chat", "-q", message, "-Q"]
+    if payload.session_id:
+        args += ["--resume", payload.session_id]
     if payload.model:
         args += ["-m", payload.model]
     if payload.skills:
         args += ["-s", ",".join(payload.skills)]
     resp = run_hermes(*args, timeout=180)
+    # Hermes prints `session_id: <id>` to stderr in -Q mode. Capture it so the UI
+    # can persist + resume the conversation; fall back to the resumed id.
+    sid = parse_session_id(resp.get("stderr", "")) or payload.session_id
     return {
-        "response": resp["stdout"],
+        "response": clean_chat_response(resp["stdout"]),
+        "session_id": sid,
         "stderr": resp.get("stderr", ""),
         "success": resp.get("success", True),
     }
+
+
+# ---------------------------------------------------------------------------
+# Sessions — the persistent Hermes SQLite session store (`hermes sessions`).
+# ---------------------------------------------------------------------------
+def parse_session_id(stderr: str) -> Optional[str]:
+    """Pull `session_id: <id>` out of Hermes' -Q stderr output."""
+    m = re.search(r"session_id\s*:\s*(\S+)", stderr or "")
+    return m.group(1) if m else None
+
+
+def clean_chat_response(stdout: str) -> str:
+    """Drop CLI noise (toolset warnings) from a chat response."""
+    lines = [ln for ln in (stdout or "").splitlines() if not re.match(r"^\s*Warning:", ln)]
+    return "\n".join(lines).strip()
+
+
+def parse_sessions_table(text: str) -> list[dict[str, Any]]:
+    """Parse the `hermes sessions list` table into records.
+
+    The column set is adaptive (Title is dropped when no row has one, a Src
+    column appears for multi-source windows), so we discover whatever columns
+    the header presents and slice each row by their offsets — values with single
+    spaces (e.g. "Last Active") survive intact.
+    """
+    lines = (text or "").splitlines()
+    header_idx = next(
+        (i for i, ln in enumerate(lines) if "Last Active" in ln and re.search(r"\bID\b", ln)),
+        None,
+    )
+    if header_idx is None:
+        return []
+    header = lines[header_idx]
+    # Header labels are separated by runs of 2+ spaces; a label itself may hold a
+    # single space ("Last Active"). Capture each label and its start offset.
+    labels = re.findall(r"\S(?:.*?\S)?(?=\s{2,}|$)", header)
+    positions: list[tuple[str, int]] = []
+    cur = 0
+    for lab in labels:
+        idx = header.index(lab, cur)
+        positions.append((lab.strip(), idx))
+        cur = idx + len(lab)
+
+    out: list[dict[str, Any]] = []
+    for ln in lines[header_idx + 1:]:
+        if not ln.strip() or set(ln.strip()) <= set("─-"):
+            continue
+        rec: dict[str, str] = {}
+        for j, (lab, start) in enumerate(positions):
+            end = positions[j + 1][1] if j + 1 < len(positions) else len(ln)
+            rec[lab] = ln[start:end].strip()
+        sid = rec.get("ID", "").strip()
+        if not sid:
+            continue
+        title = rec.get("Title", "")
+        out.append({
+            "id": sid,
+            "title": "" if title in ("—", "-") else title,
+            "preview": rec.get("Preview", ""),
+            "last_active": rec.get("Last Active", ""),
+            "source": rec.get("Src", rec.get("Source", "")),
+        })
+    return out
+
+
+@app.get("/api/hermes/sessions")
+def sessions_list(limit: int = 100, source: Optional[str] = None):
+    """List recent Hermes sessions (id, title, preview, relative last-active)."""
+    args = ["sessions", "list", "--limit", str(limit)]
+    if source:
+        args += ["--source", source]
+    resp = run_hermes(*args, timeout=30)
+    return {"sessions": parse_sessions_table(resp["stdout"])}
+
+
+@app.get("/api/hermes/sessions/{session_id}")
+def session_get(session_id: str):
+    """Return a single session's full transcript + metadata for resuming/viewing."""
+    resp = run_hermes("sessions", "export", "--session-id", session_id, "-", timeout=30)
+    raw = (resp.get("stdout") or "").strip()
+    try:
+        obj = json.loads(raw.splitlines()[0]) if raw else {}
+    except (json.JSONDecodeError, IndexError):
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found or unreadable")
+    msgs = []
+    for m in obj.get("messages") or []:
+        if not isinstance(m, dict):
+            continue
+        content = m.get("content")
+        if not isinstance(content, str):
+            content = json.dumps(content) if content is not None else ""
+        msgs.append({
+            "role": m.get("role", "assistant"),
+            "content": content,
+            "timestamp": m.get("timestamp"),
+            "tool_name": m.get("tool_name"),
+        })
+    return {
+        "id": obj.get("id", session_id),
+        "title": obj.get("title") or "",
+        "cwd": obj.get("cwd"),
+        "source": obj.get("source"),
+        "message_count": obj.get("message_count", len(msgs)),
+        "started_at": obj.get("started_at"),
+        "ended_at": obj.get("ended_at"),
+        "messages": msgs,
+    }
+
+
+@app.post("/api/hermes/sessions/{session_id}/rename")
+def session_rename(session_id: str, payload: SessionRenamePayload):
+    """Set a session's title (`hermes sessions rename`)."""
+    run_hermes("sessions", "rename", session_id, payload.title, timeout=30)
+    return {"id": session_id, "title": payload.title, "success": True}
+
+
+@app.delete("/api/hermes/sessions/{session_id}")
+def session_delete(session_id: str):
+    """Delete a session from the store (`hermes sessions delete --yes`)."""
+    run_hermes("sessions", "delete", "--yes", session_id, timeout=30)
+    return {"id": session_id, "success": True}
 
 
 # ---------------------------------------------------------------------------
