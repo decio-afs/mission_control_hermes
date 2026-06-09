@@ -175,9 +175,14 @@ export default function GhostNetwork() {
     setSending(true);
     try {
       const resp = await sendHermesChat({ message: text });
-      const out = (resp.response || '(no response)').trim();
-      out.split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 10).forEach((ln, i) =>
-        pushLine({ ag: 'ARCAN', kind: 'jarvis', text: ln, jarvis: true, ts: Date.now() + i }));
+      // Strip Hermes CLI noise (toolset warnings, the trailing session_id line)
+      // so only the orchestrator's actual answer reaches the feed.
+      const lines = (resp.response || '')
+        .split('\n')
+        .map((s) => s.trim())
+        .filter((ln) => ln && !/^Warning:/i.test(ln) && !/^session_id\s*:/i.test(ln));
+      const out = lines.length ? lines.slice(0, 14) : ['(no output — directive completed)'];
+      out.forEach((ln, i) => pushLine({ ag: 'ARCAN', kind: 'jarvis', text: ln, jarvis: true, ts: Date.now() + i }));
     } catch (e) {
       pushLine({ ag: 'ARCAN', kind: 'warn', text: `directive failed · ${errMessage(e)}`, jarvis: false });
     } finally {
@@ -201,7 +206,7 @@ export default function GhostNetwork() {
     return [...acts, ...localLines].sort((x, y) => x.ts - y.ts).slice(-80);
   }, [activities, localLines]);
 
-  useEffect(() => { if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight; }, [feed.length]);
+  useEffect(() => { if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight; }, [feed.length, sending]);
 
   // ── zoom + pan (orbital) ──
   const applyZoom = useCallback((smooth: boolean) => {
@@ -470,6 +475,14 @@ export default function GhostNetwork() {
                   <span className="tx">{l.text}</span>
                 </div>
               ))}
+              {sending && (
+                <div className="fline jarvis nx-thinking">
+                  <span className="ts">··:··:··</span>
+                  <span className="ag">ARCAN</span>
+                  <span className="kk jarvis">CORE</span>
+                  <span className="tx">orchestrator is thinking<span className="nx-ellipsis" /></span>
+                </div>
+              )}
             </div>
           </div>
         </aside>
