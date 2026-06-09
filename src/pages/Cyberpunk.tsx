@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useGhostStore } from '../stores/useGhostStore';
 import { useTaskStore } from '../stores/useTaskStore';
 import { useSystemStore } from '../stores/useSystemStore';
+import { useAgentDrilldownStore } from '../stores/useAgentDrilldownStore';
 import { getHermesAgents, getHermesCron, spawnHermesAgent, errMessage, type HermesAgent, type HermesCronJob } from '../lib/api';
 
 /**
@@ -74,6 +75,7 @@ export default function Cyberpunk() {
   const { nodes, error: ghostError, isLoading: ghostLoading } = useGhostStore();
   const { tasks, summary, hermesTasks, addHermesTask, claimHermesTaskById, completeHermesTaskById } = useTaskStore();
   const { vitals, error: systemError } = useSystemStore();
+  const openDrilldown = useAgentDrilldownStore((s) => s.open);
 
   const [agents, setAgents] = useState<HermesAgent[]>([]);
   const [cronJobs, setCronJobs] = useState<HermesCronJob[]>([]);
@@ -82,6 +84,10 @@ export default function Cyberpunk() {
   const [spawnGoal, setSpawnGoal] = useState('');
   const [logs, setLogs] = useState<{ t: string; msg: string; color?: string }[]>([]);
   const [loading, setLoading] = useState(false);
+  // BRIDGE LOG is a local client action log; let it collapse so it doesn't
+  // permanently eat vertical space on the primary console. Preference persists.
+  const [logOpen, setLogOpen] = useState(() => localStorage.getItem('mc-bridgelog-open') !== 'false');
+  useEffect(() => { localStorage.setItem('mc-bridgelog-open', String(logOpen)); }, [logOpen]);
 
   function pushLog(msg: string, color?: string) {
     const t = new Date().toISOString().slice(11, 19);
@@ -197,7 +203,7 @@ export default function Cyberpunk() {
       </div>
 
       {/* Top stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mb-4">
         <Panel><Stat label="AGENTS" value={agents.length} tone="info" /></Panel>
         <Panel><Stat label="ONLINE" value={onlineCount} tone="good" /></Panel>
         <Panel><Stat label="BUSY" value={busyCount} tone="warn" /></Panel>
@@ -219,15 +225,20 @@ export default function Cyberpunk() {
               const color = (node?.squad && SQUAD_COLORS[node.squad]) || SQUAD_COLORS.DEV || '#38bdf8';
               const isOnline = !!node && (node.status === 'active' || node.status === 'online');
               return (
-                <div key={a.name} className="flex items-center gap-3 border border-white/5 bg-[#080808] px-2 py-1.5">
+                <button
+                  key={a.name}
+                  onClick={() => openDrilldown(a.name)}
+                  title="Inspect agent — tasks, status & activity"
+                  className="flex items-center gap-3 border border-white/5 bg-[#080808] px-2 py-1.5 text-left hover:border-[#f64e6e]/40 transition-colors group/legion"
+                >
                   <div className="w-2 h-8" style={{ background: isOnline ? color : '#1a1a1a' }} />
                   <div className="flex-1">
-                    <div className="text-[11px] font-bold uppercase tracking-wide text-white">{a.name}</div>
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-white group-hover/legion:text-[#f64e6e] transition-colors">{a.name}</div>
                     <div className="text-[9px] font-mono text-[#545454]">
                       {isOnline ? 'ONLINE' : 'DORMANT'} · tasks {node?.tasks_running ?? 0} · queue {node?.queue_depth ?? 0}
                     </div>
                   </div>
-                </div>
+                </button>
               );
             })}
             {agents.length === 0 && <div className="text-[10px] font-mono text-[#545454]">No agents loaded. Click SYNC HERMES.</div>}
@@ -347,17 +358,32 @@ export default function Cyberpunk() {
         </div>
       </div>
 
-      {/* Log tail */}
-      <Panel label="BRIDGE LOG" right={<span>LIVE</span>} className="mt-4">
-        <div className="font-mono text-[10px] leading-[1.5] h-[140px] overflow-auto mc-scroll">
-          {logs.map((l, i) => (
-            <div key={i} className="flex gap-2">
-              <span className="text-[#363636] shrink-0">{l.t}</span>
-              <span style={{ color: l.color || '#b8b8b8' }} className="truncate">{l.msg}</span>
-            </div>
-          ))}
-          {logs.length === 0 && <div className="text-[#545454]">Waiting for events...</div>}
-        </div>
+      {/* Log tail — collapsible local action log */}
+      <Panel
+        label="BRIDGE LOG"
+        right={
+          <button
+            onClick={() => setLogOpen((v) => !v)}
+            className="flex items-center gap-1.5 hover:text-[#f64e6e] transition-colors"
+            title={logOpen ? 'Collapse log' : 'Expand log'}
+          >
+            <span>{logs.length} EVENTS</span>
+            <span className="text-[9px]">{logOpen ? '▾' : '▸'}</span>
+          </button>
+        }
+        className="mt-4"
+      >
+        {logOpen && (
+          <div className="font-mono text-[10px] leading-[1.5] h-[140px] overflow-auto mc-scroll">
+            {logs.map((l, i) => (
+              <div key={i} className="flex gap-2">
+                <span className="text-[#363636] shrink-0">{l.t}</span>
+                <span style={{ color: l.color || '#b8b8b8' }} className="truncate">{l.msg}</span>
+              </div>
+            ))}
+            {logs.length === 0 && <div className="text-[#545454]">Waiting for events...</div>}
+          </div>
+        )}
       </Panel>
     </div>
   );
