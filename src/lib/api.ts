@@ -104,7 +104,7 @@ export async function getHermesTasks(): Promise<{ tasks: HermesTask[] }> {
   return data;
 }
 
-export async function createHermesTask(payload: { title: string; body?: string; assignee?: string; priority?: number }) {
+export async function createHermesTask(payload: { title: string; body?: string; assignee?: string; priority?: number; skills?: string[]; parents?: string[]; triage?: boolean }) {
   const { data } = await bridge.post('/api/hermes/tasks', payload);
   return data;
 }
@@ -121,6 +121,91 @@ export async function completeHermesTask(taskId: string) {
 
 export async function blockHermesTask(taskId: string, reason: string) {
   const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/block`, { reason });
+  return data;
+}
+
+// ── Full kanban task control (mirrors `hermes kanban` verbs) ──────────────
+export interface TaskComment { author: string; body: string; created_at: number }
+export interface TaskEvent { kind: string; payload: Record<string, unknown> | null; created_at: number; run_id: string | null }
+export interface TaskRun { run_id?: string; profile?: string; outcome?: string; elapsed?: number | string; summary?: string; [k: string]: unknown }
+export interface TaskDetail {
+  task: HermesTask;
+  latest_summary: string | null;
+  parents: string[];
+  children: string[];
+  comments: TaskComment[];
+  events: TaskEvent[];
+  runs: TaskRun[];
+}
+export interface KanbanStats {
+  by_status: Record<string, number>;
+  by_assignee: Record<string, Record<string, number>>;
+  oldest_ready_age_seconds: number | null;
+  now: number;
+}
+
+export async function getHermesTaskDetail(taskId: string): Promise<TaskDetail> {
+  const { data } = await bridge.get(`/api/hermes/tasks/${taskId}`);
+  return data;
+}
+
+export async function getKanbanStats(): Promise<KanbanStats> {
+  const { data } = await bridge.get('/api/hermes/kanban/stats');
+  return data;
+}
+
+export async function unblockHermesTask(taskId: string, reason?: string) {
+  const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/unblock`, { reason });
+  return data;
+}
+
+export async function promoteHermesTask(taskId: string, reason?: string, force?: boolean) {
+  const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/promote`, { reason, force });
+  return data;
+}
+
+export async function scheduleHermesTask(taskId: string, reason?: string) {
+  const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/schedule`, { reason });
+  return data;
+}
+
+export async function archiveHermesTask(taskId: string) {
+  const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/archive`);
+  return data;
+}
+
+export async function assignHermesTask(taskId: string, profile: string) {
+  const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/assign`, { profile });
+  return data;
+}
+
+export async function reassignHermesTask(taskId: string, profile: string, reclaim?: boolean, reason?: string) {
+  const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/reassign`, { profile, reclaim, reason });
+  return data;
+}
+
+export async function reclaimHermesTask(taskId: string) {
+  const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/reclaim`);
+  return data;
+}
+
+export async function commentHermesTask(taskId: string, text: string, author?: string) {
+  const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/comment`, { text, author });
+  return data;
+}
+
+export async function editHermesTask(taskId: string, result: string, summary?: string, metadata?: string) {
+  const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/edit`, { result, summary, metadata });
+  return data;
+}
+
+export async function linkHermesTasks(parentId: string, childId: string) {
+  const { data } = await bridge.post('/api/hermes/tasks/link', { parent_id: parentId, child_id: childId });
+  return data;
+}
+
+export async function unlinkHermesTasks(parentId: string, childId: string) {
+  const { data } = await bridge.post('/api/hermes/tasks/unlink', { parent_id: parentId, child_id: childId });
   return data;
 }
 

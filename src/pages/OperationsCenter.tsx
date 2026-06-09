@@ -1,226 +1,271 @@
-import { useState, useEffect, useRef } from 'react';
+// Operations Center — full Hermes kanban board.
+//
+// A column-per-status board backed live by `hermes kanban`, with a per-task
+// detail/control slide-over (TaskDetailDrawer) exposing the full verb set:
+// claim / complete / block / unblock / promote / schedule / archive / reassign /
+// reclaim / comment / edit / link / unlink. Plus task creation (full fields),
+// AI decompose, and cron management.
+import { useState, useEffect, useMemo } from 'react';
 import { useTaskStore } from '../stores/useTaskStore';
+import { useGhostStore } from '../stores/useGhostStore';
 import { useTaskFocusStore } from '../stores/useTaskFocusStore';
-import { getHermesCron, runHermesCron, createHermesCron, decomposeTask, errMessage, type HermesCronJob } from '../lib/api';
-import { Panel, Pill } from '../components/cyberpunk/ui';
+import { getHermesCron, runHermesCron, createHermesCron, decomposeTask, errMessage, type HermesCronJob, type HermesTask } from '../lib/api';
+import TaskDetailDrawer from '../components/TaskDetailDrawer';
 
-const FILTERS = ['ALL', 'READY', 'RUNNING', 'BLOCKED', 'DONE', 'FAILED'] as const;
+const COLUMNS: { key: string; label: string; tone: string }[] = [
+  { key: 'triage', label: 'TRIAGE', tone: '#6b7280' },
+  { key: 'todo', label: 'TODO', tone: '#9aa3b5' },
+  { key: 'ready', label: 'READY', tone: '#38bdf8' },
+  { key: 'running', label: 'RUNNING', tone: '#f59e0b' },
+  { key: 'review', label: 'REVIEW', tone: '#a855f7' },
+  { key: 'blocked', label: 'BLOCKED', tone: '#ef4444' },
+  { key: 'scheduled', label: 'SCHEDULED', tone: '#6b7280' },
+  { key: 'done', label: 'DONE', tone: '#10b981' },
+];
 
-function toneFor(status: string): 'good' | 'info' | 'bad' | 'warn' | 'neutral' {
-  if (status === 'running') return 'warn';
-  if (status === 'done') return 'good';
-  if (status === 'ready') return 'info';
-  if (status === 'failed' || status === 'blocked') return 'bad';
-  return 'neutral';
+// Normalize any Hermes status string to one of our columns.
+function colOf(status: string): string {
+  if (status === 'completed') return 'done';
+  if (status === 'failed') return 'blocked';
+  if (status === 'pending') return 'todo';
+  return COLUMNS.some((c) => c.key === status) ? status : 'todo';
+}
+
+function ago(unixSeconds: number): string {
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - unixSeconds));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
 }
 
 export default function OperationsCenter() {
-  const [filter, setFilter] = useState<string>('ALL');
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
-  const [cron, setCron] = useState<HermesCronJob[]>([]);
+  const { hermesTasks, summary, stats, error, lastSync, fetchTasks, fetchStats, createTask, claimHermesTaskById, completeHermesTaskById } = useTaskStore();
+  const nodes = useGhostStore((s) => s.nodes);
+
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const [assigneeFilter, setAssigneeFilter] = useState('ALL');
+
+  // create-task modal
+  const [createOpen, setCreateOpen] = useState(false);
+  const [cTitle, setCTitle] = useState('');
+  const [cBody, setCBody] = useState('');
+  const [cAssignee, setCAssignee] = useState('');
+  const [cPriority, setCPriority] = useState('');
+  const [cSkills, setCSkills] = useState('');
+  const [cTriage, setCTriage] = useState(false);
+
+  // decompose modal
   const [decomposeOpen, setDecomposeOpen] = useState(false);
   const [decomposeText, setDecomposeText] = useState('');
   const [decomposeLoading, setDecomposeLoading] = useState(false);
   const [decomposeResult, setDecomposeResult] = useState<{ title: string; body?: string; assignee?: string }[] | null>(null);
 
-  // Cron-creation modal state.
+  // cron modal
   const [cronOpen, setCronOpen] = useState(false);
+  const [cron, setCron] = useState<HermesCronJob[]>([]);
   const [cronSchedule, setCronSchedule] = useState('');
   const [cronPrompt, setCronPrompt] = useState('');
   const [cronName, setCronName] = useState('');
   const [cronLoading, setCronLoading] = useState(false);
   const [cronError, setCronError] = useState<string | null>(null);
 
-  const {
-    tasks, summary, error, lastSync,
-    fetchTasks, addHermesTask, claimHermesTaskById, completeHermesTaskById, blockHermesTaskById,
-  } = useTaskStore();
-
-  // Task Search (⌘F) hands a task id here; scroll it into view + flash-highlight it.
-  const { focusId, nonce, clear: clearFocus } = useTaskFocusStore();
-  const [flashId, setFlashId] = useState<string | null>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-
   const loadCron = () => getHermesCron().then((d) => setCron(d.jobs || [])).catch(() => {});
 
-  // Tasks are refreshed globally by Layout (and after each mutation); poll only cron here.
-  useEffect(() => {
-    fetchTasks();   // immediate first paint
-    loadCron();
-    const id = setInterval(loadCron, 8000);
-    return () => clearInterval(id);
-  }, [fetchTasks]);
+  useEffect(() => { fetchTasks(); fetchStats(); loadCron(); }, [fetchTasks, fetchStats]);
 
-  // When Task Search focuses a task, reset the filter so it's guaranteed visible,
-  // then scroll + flash it once the row is in the DOM. `nonce` re-fires even when
-  // the same task is chosen twice; the flash clears itself after 2.4s.
+  // Task Search (⌘F) → open that task's drawer directly.
+  const { focusId, nonce, clear: clearFocus } = useTaskFocusStore();
   useEffect(() => {
     if (!focusId) return;
-    setFilter('ALL');
-    setFlashId(focusId);
-    const raf = requestAnimationFrame(() => {
-      const el = listRef.current?.querySelector<HTMLElement>(`[data-task-id="${CSS.escape(focusId)}"]`);
-      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    });
-    const t = setTimeout(() => setFlashId(null), 2400);
+    setOpenTaskId(focusId);
     clearFocus();
-    return () => { cancelAnimationFrame(raf); clearTimeout(t); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusId, nonce]);
+  }, [focusId, nonce, clearFocus]);
 
-  const filtered = tasks.filter((t) => filter === 'ALL' || t.status.toUpperCase() === filter);
+  // Profiles for assignee dropdowns: live agents ∪ assignees already on tasks.
+  const profiles = useMemo(() => {
+    const set = new Set<string>();
+    nodes.filter((n) => n.type !== 'squad').forEach((n) => set.add(n.name));
+    hermesTasks.forEach((t) => { if (t.assignee) set.add(t.assignee); });
+    return [...set].sort();
+  }, [nodes, hermesTasks]);
+
+  const visibleTasks = useMemo(
+    () => hermesTasks.filter((t) => assigneeFilter === 'ALL' || (t.assignee || 'unassigned') === assigneeFilter),
+    [hermesTasks, assigneeFilter],
+  );
+
+  const byColumn = useMemo(() => {
+    const map: Record<string, HermesTask[]> = {};
+    COLUMNS.forEach((c) => (map[c.key] = []));
+    visibleTasks.forEach((t) => { (map[colOf(t.status)] ||= []).push(t); });
+    // priority desc within a column, then newest first
+    Object.values(map).forEach((arr) => arr.sort((a, b) => (b.priority - a.priority) || (b.created_at - a.created_at)));
+    return map;
+  }, [visibleTasks]);
+
+  const oldestReady = stats?.oldest_ready_age_seconds;
 
   const handleCreate = async () => {
-    if (!title.trim()) return;
-    const t = await addHermesTask(title.trim(), body.trim() || undefined);
-    if (t) { setTitle(''); setBody(''); }
+    if (!cTitle.trim()) return;
+    const t = await createTask({
+      title: cTitle.trim(),
+      body: cBody.trim() || undefined,
+      assignee: cAssignee || undefined,
+      priority: cPriority.trim() ? Number(cPriority) : undefined,
+      skills: cSkills.trim() ? cSkills.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      triage: cTriage || undefined,
+    });
+    if (t) { setCreateOpen(false); setCTitle(''); setCBody(''); setCAssignee(''); setCPriority(''); setCSkills(''); setCTriage(false); }
   };
 
   const handleCreateCron = async () => {
     if (!cronSchedule.trim()) return;
-    setCronLoading(true);
-    setCronError(null);
+    setCronLoading(true); setCronError(null);
     try {
-      const data = await createHermesCron({
-        schedule: cronSchedule.trim(),
-        prompt: cronPrompt.trim() || undefined,
-        name: cronName.trim() || undefined,
-      });
-      setCron(data.jobs || []);
-      setCronOpen(false);
-      setCronSchedule('');
-      setCronPrompt('');
-      setCronName('');
-    } catch (err) {
-      setCronError(errMessage(err));
-    } finally {
-      setCronLoading(false);
-    }
+      const data = await createHermesCron({ schedule: cronSchedule.trim(), prompt: cronPrompt.trim() || undefined, name: cronName.trim() || undefined });
+      setCron(data.jobs || []); setCronSchedule(''); setCronPrompt(''); setCronName('');
+    } catch (err) { setCronError(errMessage(err)); } finally { setCronLoading(false); }
   };
 
   const handleDecompose = async () => {
     if (!decomposeText.trim()) return;
-    setDecomposeLoading(true);
-    setDecomposeResult(null);
+    setDecomposeLoading(true); setDecomposeResult(null);
     try {
       const data = await decomposeTask({ task: decomposeText.trim() });
       const subs = data?.subtasks || [];
       setDecomposeResult(subs);
-      // Auto-create subtasks in kanban
-      for (const sub of subs) {
-        await addHermesTask(sub.title, sub.body, sub.assignee);
-      }
-      await fetchTasks();
-    } catch (err) {
-      console.error('Decompose failed:', err);
-    } finally {
-      setDecomposeLoading(false);
-    }
+      for (const sub of subs) await createTask({ title: sub.title, body: sub.body, assignee: sub.assignee });
+    } catch (err) { console.error('Decompose failed:', err); } finally { setDecomposeLoading(false); }
   };
 
   return (
-    <div className="h-full grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-2 p-2 overflow-auto">
-      {/* Task queue */}
-      <Panel label="MISSION QUEUE" right={<span className="text-[#545454]">{filtered.length} / {tasks.length}</span>} bodyClass="flex flex-col">
-        <div className="flex flex-wrap gap-1 mb-2 text-[10px] font-mono shrink-0">
-          {FILTERS.map((f) => (
-            <button key={f} onClick={() => setFilter(f)}
-              className={`px-2 py-1 border ${filter === f ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#b8b8b8] hover:border-white/30'}`}>
-              {f}
-            </button>
-          ))}
+    <div className="h-full flex flex-col gap-2 p-2 min-h-0">
+      {/* HEADER */}
+      <div className="shrink-0 flex flex-wrap items-center gap-2">
+        <span className="font-mono text-[11px] tracking-[0.2em] text-white font-bold">MISSION KANBAN</span>
+        <div className="flex items-center gap-2 text-[10px] font-mono">
+          <Chip k="TOTAL" v={summary?.total ?? hermesTasks.length} c="text-white" />
+          <Chip k="READY" v={stats?.by_status?.ready ?? summary?.ready ?? 0} c="text-sky-400" />
+          <Chip k="RUNNING" v={stats?.by_status?.running ?? summary?.running ?? 0} c="text-amber-400" />
+          <Chip k="BLOCKED" v={stats?.by_status?.blocked ?? summary?.blocked ?? 0} c="text-red-400" />
+          <Chip k="DONE" v={stats?.by_status?.done ?? summary?.completed ?? 0} c="text-emerald-400" />
+          {oldestReady != null && <Chip k="OLDEST READY" v={`${ago(Math.floor(Date.now() / 1000) - oldestReady)}`} c="text-[#b8b8b8]" />}
         </div>
-        <div ref={listRef} className="flex flex-col gap-1 overflow-auto flex-1 min-h-0">
-          {filtered.map((task) => (
-            <div key={task.id} data-task-id={task.id}
-              className={`p-2 border bg-[#080808] transition-colors ${flashId === task.id ? 'border-[#f64e6e] ring-1 ring-[#f64e6e]/60 bg-[#f64e6e]/[0.06]' : 'border-white/[0.08] hover:border-white/20'}`}>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-mono text-[#545454]">{task.id}</span>
-                <Pill tone={toneFor(task.status)}>{task.status.toUpperCase()}</Pill>
+        <div className="ml-auto flex items-center gap-1.5 text-[10px] font-mono">
+          <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}
+            className="bg-[#080808] border border-white/10 px-2 py-1 text-white focus:border-[#f64e6e] outline-none">
+            <option value="ALL">ALL ASSIGNEES</option>
+            {profiles.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <button onClick={() => setCreateOpen(true)} className="border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] px-2 py-1 hover:bg-[#f64e6e]/20">+ TASK</button>
+          <button onClick={() => { setDecomposeOpen(true); setDecomposeText(''); setDecomposeResult(null); }} className="border border-white/10 text-[#b8b8b8] px-2 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e]">⚡ DECOMPOSE</button>
+          <button onClick={() => { setCronOpen(true); setCronError(null); loadCron(); }} className="border border-white/10 text-[#b8b8b8] px-2 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e]">⏱ CRON</button>
+          <span className="text-[#545454] hidden xl:inline">{lastSync ? `synced ${lastSync.toLocaleTimeString()}` : '—'}</span>
+        </div>
+      </div>
+
+      {error && <div className="shrink-0 px-2 py-1 border border-red-400/40 bg-[#050505]/80 text-red-400 font-mono text-[10px]">⚠ {error}</div>}
+
+      {/* BOARD */}
+      <div className="flex-1 min-h-0 flex gap-2 overflow-x-auto pb-1">
+        {COLUMNS.map((col) => {
+          const items = byColumn[col.key] || [];
+          return (
+            <div key={col.key} className="flex flex-col min-h-0 w-[230px] shrink-0 border border-white/[0.07] bg-[#070707]">
+              <div className="shrink-0 flex items-center justify-between px-2 py-1.5 border-b border-white/10" style={{ boxShadow: `inset 3px 0 0 ${col.tone}` }}>
+                <span className="text-[10px] font-mono tracking-[0.16em] font-bold" style={{ color: col.tone }}>{col.label}</span>
+                <span className="text-[10px] font-mono text-[#545454]">{items.length}</span>
               </div>
-              <div className="text-[12px] text-white mb-1 leading-tight">{task.name}</div>
-              <div className="flex justify-between text-[10px] font-mono mb-1.5">
-                <span className="text-[#b8b8b8]">{task.agentName}</span>
-                <span className="text-[#545454]">P{String(task.priority).toUpperCase()}</span>
+              <div className="flex-1 min-h-0 overflow-y-auto p-1.5 flex flex-col gap-1.5">
+                {items.map((t) => (
+                  <button key={t.id} data-task-id={t.id} onClick={() => setOpenTaskId(t.id)}
+                    className={`text-left p-2 border bg-[#0b0b0b] hover:border-white/25 transition-colors ${openTaskId === t.id ? 'border-[#f64e6e]' : 'border-white/[0.08]'}`}>
+                    <div className="flex items-start gap-1.5 mb-1">
+                      <span className="mt-1 w-1.5 h-1.5 shrink-0" style={{ background: col.tone }} />
+                      <span className="text-[11px] text-white leading-tight line-clamp-3">{t.title}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[9px] font-mono text-[#545454]">
+                      <span className="text-[#b8b8b8] truncate">{t.assignee || 'unassigned'}</span>
+                      <span className="flex items-center gap-1.5 shrink-0">
+                        {t.priority !== 0 && <span title="priority">P{t.priority}</span>}
+                        {t.skills?.length > 0 && <span title="skills">⚙{t.skills.length}</span>}
+                        <span>{ago(t.created_at)}</span>
+                      </span>
+                    </div>
+                    {(col.key === 'ready' || col.key === 'running') && (
+                      <div className="mt-1.5 flex">
+                        {col.key === 'ready' && <span onClick={(e) => { e.stopPropagation(); void claimHermesTaskById(t.id); }} className="flex-1 text-center text-[9px] font-mono border border-white/10 py-0.5 hover:border-amber-400 hover:text-amber-400 cursor-pointer">CLAIM</span>}
+                        {col.key === 'running' && <span onClick={(e) => { e.stopPropagation(); void completeHermesTaskById(t.id); }} className="flex-1 text-center text-[9px] font-mono border border-white/10 py-0.5 hover:border-emerald-400 hover:text-emerald-400 cursor-pointer">COMPLETE</span>}
+                      </div>
+                    )}
+                  </button>
+                ))}
+                {items.length === 0 && <div className="text-[9px] font-mono text-[#363636] px-1 py-2 text-center">empty</div>}
               </div>
-              <div className="flex gap-1">
-                {task.status === 'ready' && (
-                  <button onClick={() => void claimHermesTaskById(task.id)} className="flex-1 text-[9px] font-mono border border-white/10 py-1 hover:border-amber-400 hover:text-amber-400">CLAIM</button>
-                )}
-                {task.status === 'running' && (
-                  <button onClick={() => void completeHermesTaskById(task.id)} className="flex-1 text-[9px] font-mono border border-white/10 py-1 hover:border-emerald-400 hover:text-emerald-400">COMPLETE</button>
-                )}
-                {task.status !== 'done' && task.status !== 'blocked' && (
-                  <button onClick={() => void blockHermesTaskById(task.id, 'blocked from Mission Control')} className="flex-1 text-[9px] font-mono border border-white/10 py-1 hover:border-red-400 hover:text-red-400">BLOCK</button>
-                )}
-              </div>
-              {task.status === 'running' && (
-                <div className="mt-1.5 h-0.5 bg-white/5 relative overflow-hidden">
-                  <div className="absolute inset-y-0 w-1/3 bg-[#f64e6e]" style={{ animation: 'slide 2s linear infinite' }} />
-                </div>
-              )}
             </div>
-          ))}
-          {filtered.length === 0 && <div className="text-[10px] font-mono text-[#545454] p-2">No tasks match filter</div>}
-        </div>
+          );
+        })}
+      </div>
 
-        {/* Create task */}
-        <div className="mt-2 flex flex-col gap-1.5 border-t border-white/10 pt-2 shrink-0">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="New task title..."
-            className="bg-[#080808] border border-white/10 px-2 py-1.5 text-[11px] text-white placeholder:text-[#545454] focus:border-[#f64e6e] outline-none" />
-          <input value={body} onChange={(e) => setBody(e.target.value)} placeholder="Body (optional)..."
-            onKeyDown={(e) => { if (e.key === 'Enter') void handleCreate(); }}
-            className="bg-[#080808] border border-white/10 px-2 py-1.5 text-[11px] text-white placeholder:text-[#545454] focus:border-[#f64e6e] outline-none" />
-          <button onClick={() => void handleCreate()} className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] py-1.5 hover:bg-[#f64e6e]/20">
-            + CREATE HERMES TASK
-          </button>
-          <button onClick={() => { setDecomposeOpen(true); setDecomposeText(''); setDecomposeResult(null); }} className="text-[10px] font-mono border border-white/10 text-[#b8b8b8] py-1.5 hover:border-[#f64e6e] hover:text-[#f64e6e]">
-            ⚡ DECOMPOSE TASK
-          </button>
-        </div>
-      </Panel>
+      {/* DETAIL DRAWER */}
+      <TaskDetailDrawer key={openTaskId ?? 'none'} taskId={openTaskId} profiles={profiles} onClose={() => setOpenTaskId(null)} onOpenTask={(id) => setOpenTaskId(id)} />
 
-      {/* Right: summary + cron + decompose */}
-      <div className="flex flex-col gap-2 min-h-0">
-        {error && (
-          <div className="shrink-0 px-2 py-1 border border-red-400/40 bg-[#050505]/80 text-red-400 font-mono text-[10px]">
-            ⚠ {error}
+      {/* CREATE MODAL */}
+      {createOpen && (
+        <Modal title="CREATE TASK" onClose={() => setCreateOpen(false)}>
+          <Field label="TITLE">
+            <input autoFocus value={cTitle} onChange={(e) => setCTitle(e.target.value)} placeholder="Task title…" className={inputCls} />
+          </Field>
+          <Field label="BODY (optional)">
+            <textarea value={cBody} onChange={(e) => setCBody(e.target.value)} rows={3} placeholder="Opening post / context…" className={`${inputCls} resize-none`} />
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="ASSIGNEE">
+              <select value={cAssignee} onChange={(e) => setCAssignee(e.target.value)} className={inputCls}>
+                <option value="">unassigned</option>
+                {profiles.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </Field>
+            <Field label="PRIORITY">
+              <input value={cPriority} onChange={(e) => setCPriority(e.target.value)} placeholder="0" inputMode="numeric" className={inputCls} />
+            </Field>
           </div>
-        )}
-        <Panel label="KANBAN SUMMARY" right={<span className="text-[#545454]">{lastSync ? `synced ${lastSync.toLocaleTimeString()}` : '—'}</span>} className="shrink-0">
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
-            {[
-              { k: 'TOTAL', v: summary?.total ?? 0, c: 'text-white' },
-              { k: 'READY', v: summary?.ready ?? 0, c: 'text-sky-400' },
-              { k: 'RUNNING', v: summary?.running ?? 0, c: 'text-amber-400' },
-              { k: 'BLOCKED', v: summary?.blocked ?? 0, c: 'text-red-400' },
-              { k: 'DONE', v: summary?.completed ?? 0, c: 'text-emerald-400' },
-              { k: 'FAILED', v: summary?.failed ?? 0, c: 'text-red-400' },
-            ].map((s) => (
-              <div key={s.k} className="flex flex-col gap-0.5">
-                <span className="text-[9px] font-mono tracking-[0.2em] uppercase text-[#545454]">{s.k}</span>
-                <span className={`text-2xl font-mono font-bold tabular-nums ${s.c}`}>{s.v}</span>
-              </div>
-            ))}
-          </div>
-          {error && <div className="mt-2 text-[10px] font-mono text-red-400">⚠ {error}</div>}
-        </Panel>
+          <Field label="SKILLS (comma-separated)">
+            <input value={cSkills} onChange={(e) => setCSkills(e.target.value)} placeholder="research, copy, sql" className={inputCls} />
+          </Field>
+          <label className="flex items-center gap-2 text-[10px] font-mono text-[#b8b8b8]">
+            <input type="checkbox" checked={cTriage} onChange={(e) => setCTriage(e.target.checked)} />
+            Park in TRIAGE (a specifier fleshes out the spec before promotion)
+          </label>
+          <button onClick={() => void handleCreate()} disabled={!cTitle.trim()} className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] py-1.5 hover:bg-[#f64e6e]/20 disabled:opacity-30">+ CREATE HERMES TASK</button>
+        </Modal>
+      )}
 
-        <Panel
-          label="SCHEDULED JOBS · hermes cron"
-          right={(
-            <span className="flex items-center gap-2">
-              <button
-                onClick={() => { setCronOpen(true); setCronError(null); }}
-                className="border border-[#f64e6e]/40 text-[#f64e6e] px-2 py-0.5 hover:bg-[#f64e6e]/10"
-              >+ NEW</button>
-              <span>{cron.length} jobs</span>
-            </span>
+      {/* DECOMPOSE MODAL */}
+      {decomposeOpen && (
+        <Modal title="DECOMPOSE TASK" onClose={() => setDecomposeOpen(false)}>
+          <textarea value={decomposeText} onChange={(e) => setDecomposeText(e.target.value)} placeholder="Describe the complex task to decompose…" rows={4} className={`${inputCls} resize-none`} />
+          <button onClick={() => void handleDecompose()} disabled={decomposeLoading || !decomposeText.trim()} className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] py-1.5 hover:bg-[#f64e6e]/20 disabled:opacity-30">
+            {decomposeLoading ? 'DECOMPOSING…' : '⚡ DECOMPOSE & CREATE SUBTASKS'}
+          </button>
+          {decomposeResult && (
+            <div className="flex flex-col gap-1 mt-1">
+              <div className="text-[10px] font-mono text-emerald-400">✓ {decomposeResult.length} sub-tasks created</div>
+              {decomposeResult.map((sub, i) => (
+                <div key={i} className="px-2 py-1 border border-white/[0.06] bg-[#080808] text-[10px] font-mono text-[#b8b8b8]">
+                  <span className="text-white">{sub.title}</span>{sub.assignee && <span className="text-[#545454] ml-2">→ {sub.assignee}</span>}
+                </div>
+              ))}
+            </div>
           )}
-          className="flex-1 min-h-0"
-        >
-          <div className="flex flex-col gap-1 overflow-auto h-full">
+        </Modal>
+      )}
+
+      {/* CRON MODAL */}
+      {cronOpen && (
+        <Modal title="SCHEDULED JOBS · hermes cron" onClose={() => setCronOpen(false)}>
+          <div className="flex flex-col gap-1 max-h-[220px] overflow-auto">
             {cron.map((j) => (
               <div key={j.id} className="flex items-center justify-between px-2 py-1.5 border border-white/[0.06] bg-[#080808]">
                 <div className="flex items-center gap-2 min-w-0">
@@ -233,93 +278,50 @@ export default function OperationsCenter() {
                 <button onClick={() => void runHermesCron(j.id)} className="text-[9px] font-mono border border-white/10 px-2 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e] shrink-0">RUN</button>
               </div>
             ))}
-            {cron.length === 0 && <div className="text-[10px] font-mono text-[#545454] p-2">No scheduled jobs. Add one with `hermes cron add`.</div>}
+            {cron.length === 0 && <div className="text-[10px] font-mono text-[#545454] p-2">No scheduled jobs.</div>}
           </div>
-        </Panel>
+          <div className="border-t border-white/10 pt-2 flex flex-col gap-1.5">
+            <Field label="SCHEDULE"><input value={cronSchedule} onChange={(e) => setCronSchedule(e.target.value)} placeholder="30m · every 2h · 0 9 * * *" className={inputCls} /></Field>
+            <Field label="NAME (optional)"><input value={cronName} onChange={(e) => setCronName(e.target.value)} placeholder="morning-brief" className={inputCls} /></Field>
+            <Field label="PROMPT (optional)"><textarea value={cronPrompt} onChange={(e) => setCronPrompt(e.target.value)} rows={2} placeholder="Self-contained instruction…" className={`${inputCls} resize-none`} /></Field>
+            {cronError && <div className="text-[10px] font-mono text-red-400">⚠ {cronError}</div>}
+            <button onClick={() => void handleCreateCron()} disabled={cronLoading || !cronSchedule.trim()} className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] py-1.5 hover:bg-[#f64e6e]/20 disabled:opacity-30">{cronLoading ? 'SCHEDULING…' : '+ SCHEDULE JOB'}</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+const inputCls = 'bg-[#080808] border border-white/10 px-2 py-1.5 text-[11px] text-white placeholder:text-[#545454] focus:border-[#f64e6e] outline-none w-full';
+
+function Chip({ k, v, c }: { k: string; v: number | string; c: string }) {
+  return (
+    <span className="flex items-center gap-1.5 px-2 py-1 border border-white/10 bg-[#080808]">
+      <span className="text-[#545454] tracking-[0.1em]">{k}</span><span className={`font-bold tabular-nums ${c}`}>{v}</span>
+    </span>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-[9px] font-mono tracking-[0.2em] uppercase text-[#545454]">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-[#0A0A0A] border border-white/10 w-full max-w-lg mx-4" onClick={(e) => e.stopPropagation()}>
+        <div className="px-3 h-[26px] flex items-center justify-between border-b border-white/10 bg-[#080808]">
+          <span className="font-mono text-[10px] tracking-[0.2em] uppercase font-bold text-[#b8b8b8]">{title}</span>
+          <button onClick={onClose} className="text-[#545454] hover:text-white text-[11px]">✕</button>
+        </div>
+        <div className="p-3 flex flex-col gap-2">{children}</div>
       </div>
-
-      {/* Decompose Modal */}
-      {decomposeOpen && (
-        <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="bg-[#0A0A0A] border border-white/10 w-full max-w-lg mx-4">
-            <div className="px-3 h-[26px] flex items-center justify-between border-b border-white/10 bg-[#080808]">
-              <span className="font-mono text-[10px] tracking-[0.2em] uppercase font-bold text-[#b8b8b8]">DECOMPOSE TASK</span>
-              <button onClick={() => setDecomposeOpen(false)} className="text-[#545454] hover:text-white text-[11px]">✕</button>
-            </div>
-            <div className="p-3 flex flex-col gap-2">
-              <textarea
-                value={decomposeText}
-                onChange={(e) => setDecomposeText(e.target.value)}
-                placeholder="Describe the complex task to decompose..."
-                rows={4}
-                className="bg-[#080808] border border-white/10 px-2 py-1.5 text-[11px] text-white placeholder:text-[#545454] focus:border-[#f64e6e] outline-none resize-none"
-              />
-              <button
-                onClick={() => void handleDecompose()}
-                disabled={decomposeLoading || !decomposeText.trim()}
-                className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] py-1.5 hover:bg-[#f64e6e]/20 disabled:opacity-30"
-              >
-                {decomposeLoading ? 'DECOMPOSING…' : '⚡ DECOMPOSE'}
-              </button>
-              {decomposeResult && (
-                <div className="flex flex-col gap-1 mt-1">
-                  <div className="text-[10px] font-mono text-emerald-400">✓ {decomposeResult.length} sub-tasks created</div>
-                  {decomposeResult.map((sub, i) => (
-                    <div key={i} className="px-2 py-1 border border-white/[0.06] bg-[#080808] text-[10px] font-mono text-[#b8b8b8]">
-                      <span className="text-white">{sub.title}</span>
-                      {sub.assignee && <span className="text-[#545454] ml-2">→ {sub.assignee}</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Cron-creation Modal */}
-      {cronOpen && (
-        <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="bg-[#0A0A0A] border border-white/10 w-full max-w-lg mx-4">
-            <div className="px-3 h-[26px] flex items-center justify-between border-b border-white/10 bg-[#080808]">
-              <span className="font-mono text-[10px] tracking-[0.2em] uppercase font-bold text-[#b8b8b8]">SCHEDULE CRON JOB</span>
-              <button onClick={() => setCronOpen(false)} className="text-[#545454] hover:text-white text-[11px]">✕</button>
-            </div>
-            <div className="p-3 flex flex-col gap-2">
-              <label className="text-[9px] font-mono tracking-[0.2em] uppercase text-[#545454]">SCHEDULE</label>
-              <input
-                value={cronSchedule}
-                onChange={(e) => setCronSchedule(e.target.value)}
-                placeholder="30m · every 2h · 0 9 * * *"
-                className="bg-[#080808] border border-white/10 px-2 py-1.5 text-[11px] font-mono text-white placeholder:text-[#545454] focus:border-[#f64e6e] outline-none"
-              />
-              <label className="text-[9px] font-mono tracking-[0.2em] uppercase text-[#545454]">NAME <span className="text-[#363636]">(optional)</span></label>
-              <input
-                value={cronName}
-                onChange={(e) => setCronName(e.target.value)}
-                placeholder="morning-brief"
-                className="bg-[#080808] border border-white/10 px-2 py-1.5 text-[11px] text-white placeholder:text-[#545454] focus:border-[#f64e6e] outline-none"
-              />
-              <label className="text-[9px] font-mono tracking-[0.2em] uppercase text-[#545454]">PROMPT <span className="text-[#363636]">(optional)</span></label>
-              <textarea
-                value={cronPrompt}
-                onChange={(e) => setCronPrompt(e.target.value)}
-                placeholder="Self-contained instruction the agent runs on schedule…"
-                rows={3}
-                className="bg-[#080808] border border-white/10 px-2 py-1.5 text-[11px] text-white placeholder:text-[#545454] focus:border-[#f64e6e] outline-none resize-none"
-              />
-              {cronError && <div className="text-[10px] font-mono text-red-400">⚠ {cronError}</div>}
-              <button
-                onClick={() => void handleCreateCron()}
-                disabled={cronLoading || !cronSchedule.trim()}
-                className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] py-1.5 hover:bg-[#f64e6e]/20 disabled:opacity-30"
-              >
-                {cronLoading ? 'SCHEDULING…' : '+ SCHEDULE JOB'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

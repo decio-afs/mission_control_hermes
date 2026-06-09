@@ -122,10 +122,49 @@ class CreateTaskPayload(BaseModel):
     body: Optional[str] = None
     assignee: Optional[str] = None
     priority: Optional[int] = None
+    skills: Optional[list[str]] = None
+    parents: Optional[list[str]] = None
+    triage: Optional[bool] = None
 
 
 class BlockTaskPayload(BaseModel):
     reason: str
+
+
+class CommentPayload(BaseModel):
+    text: str
+    author: Optional[str] = None
+
+
+class AssignPayload(BaseModel):
+    # Profile name, or "none" to unassign.
+    profile: str
+
+
+class ReassignPayload(BaseModel):
+    profile: str
+    reclaim: Optional[bool] = None
+    reason: Optional[str] = None
+
+
+class ReasonPayload(BaseModel):
+    reason: Optional[str] = None
+
+
+class PromotePayload(BaseModel):
+    reason: Optional[str] = None
+    force: Optional[bool] = None
+
+
+class LinkPayload(BaseModel):
+    parent_id: str
+    child_id: str
+
+
+class EditTaskPayload(BaseModel):
+    result: str
+    summary: Optional[str] = None
+    metadata: Optional[str] = None
 
 
 class CreateCronPayload(BaseModel):
@@ -422,8 +461,21 @@ def create_task(payload: CreateTaskPayload):
         args += ["--assignee", payload.assignee]
     if payload.priority is not None:
         args += ["--priority", str(payload.priority)]
+    for skill in payload.skills or []:
+        args += ["--skill", skill]
+    for parent in payload.parents or []:
+        args += ["--parent", parent]
+    if payload.triage:
+        args.append("--triage")
     resp = run_hermes(*args)
     return {"task": resp["data"]}
+
+
+@app.get("/api/hermes/tasks/{task_id}")
+def show_task(task_id: str):
+    """Full task detail: task fields, parents/children, comments, events, runs."""
+    resp = run_hermes("kanban", "show", task_id, "--json")
+    return resp["data"]
 
 
 @app.post("/api/hermes/tasks/{task_id}/claim")
@@ -445,6 +497,114 @@ def block_task(task_id: str, payload: BlockTaskPayload):
     """Block a kanban task."""
     resp = run_hermes("kanban", "block", task_id, "--", payload.reason)
     return {"message": resp["stdout"]}
+
+
+@app.post("/api/hermes/tasks/{task_id}/unblock")
+def unblock_task(task_id: str, payload: ReasonPayload):
+    """Return a blocked/scheduled task to ready."""
+    args = ["kanban", "unblock", task_id]
+    if payload.reason:
+        args += ["--reason", payload.reason]
+    resp = run_hermes(*args)
+    return {"message": resp["stdout"]}
+
+
+@app.post("/api/hermes/tasks/{task_id}/promote")
+def promote_task(task_id: str, payload: PromotePayload):
+    """Promote a todo/blocked/triage task to ready (recovery path)."""
+    args = ["kanban", "promote", task_id]
+    if payload.force:
+        args.append("--force")
+    if payload.reason:
+        args.append(payload.reason)
+    resp = run_hermes(*args)
+    return {"message": resp["stdout"]}
+
+
+@app.post("/api/hermes/tasks/{task_id}/schedule")
+def schedule_task(task_id: str, payload: ReasonPayload):
+    """Park a task in Scheduled (waiting on time, not human input)."""
+    args = ["kanban", "schedule", task_id]
+    if payload.reason:
+        args.append(payload.reason)
+    resp = run_hermes(*args)
+    return {"message": resp["stdout"]}
+
+
+@app.post("/api/hermes/tasks/{task_id}/archive")
+def archive_task(task_id: str):
+    """Archive a task."""
+    resp = run_hermes("kanban", "archive", task_id)
+    return {"message": resp["stdout"]}
+
+
+@app.post("/api/hermes/tasks/{task_id}/assign")
+def assign_task(task_id: str, payload: AssignPayload):
+    """Assign or unassign a task ('none' to unassign)."""
+    resp = run_hermes("kanban", "assign", task_id, payload.profile)
+    return {"message": resp["stdout"]}
+
+
+@app.post("/api/hermes/tasks/{task_id}/reassign")
+def reassign_task(task_id: str, payload: ReassignPayload):
+    """Reassign a task to a different profile, optionally reclaiming first."""
+    args = ["kanban", "reassign", task_id, payload.profile]
+    if payload.reclaim:
+        args.append("--reclaim")
+    if payload.reason:
+        args += ["--reason", payload.reason]
+    resp = run_hermes(*args)
+    return {"message": resp["stdout"]}
+
+
+@app.post("/api/hermes/tasks/{task_id}/reclaim")
+def reclaim_task(task_id: str):
+    """Release an active worker claim on a running task."""
+    resp = run_hermes("kanban", "reclaim", task_id)
+    return {"message": resp["stdout"]}
+
+
+@app.post("/api/hermes/tasks/{task_id}/comment")
+def comment_task(task_id: str, payload: CommentPayload):
+    """Append a comment to a task."""
+    args = ["kanban", "comment", task_id, payload.text]
+    if payload.author:
+        args += ["--author", payload.author]
+    resp = run_hermes(*args)
+    return {"message": resp["stdout"]}
+
+
+@app.post("/api/hermes/tasks/{task_id}/edit")
+def edit_task(task_id: str, payload: EditTaskPayload):
+    """Backfill recovery fields on an already-completed task."""
+    args = ["kanban", "edit", task_id, "--result", payload.result]
+    if payload.summary:
+        args += ["--summary", payload.summary]
+    if payload.metadata:
+        args += ["--metadata", payload.metadata]
+    resp = run_hermes(*args)
+    return {"message": resp["stdout"]}
+
+
+@app.post("/api/hermes/tasks/link")
+def link_tasks(payload: LinkPayload):
+    """Add a parent->child dependency."""
+    resp = run_hermes("kanban", "link", payload.parent_id, payload.child_id)
+    return {"message": resp["stdout"]}
+
+
+@app.post("/api/hermes/tasks/unlink")
+def unlink_tasks(payload: LinkPayload):
+    """Remove a parent->child dependency."""
+    resp = run_hermes("kanban", "unlink", payload.parent_id, payload.child_id)
+    return {"message": resp["stdout"]}
+
+
+@app.get("/api/hermes/kanban/stats")
+def kanban_stats():
+    """Per-status + per-assignee counts + oldest-ready age."""
+    resp = run_hermes("kanban", "stats", "--json")
+    return resp["data"]
 
 
 @app.get("/api/hermes/cron")

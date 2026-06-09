@@ -5,8 +5,23 @@ import {
   claimHermesTask,
   completeHermesTask,
   blockHermesTask,
+  unblockHermesTask,
+  promoteHermesTask,
+  scheduleHermesTask,
+  archiveHermesTask,
+  assignHermesTask,
+  reassignHermesTask,
+  reclaimHermesTask,
+  commentHermesTask,
+  editHermesTask,
+  linkHermesTasks,
+  unlinkHermesTasks,
+  getHermesTaskDetail,
+  getKanbanStats,
   errMessage,
   type HermesTask,
+  type TaskDetail,
+  type KanbanStats,
 } from '../lib/api';
 
 export interface OpTask {
@@ -30,19 +45,44 @@ export interface TaskSummary {
   blocked: number;
 }
 
+export interface CreateTaskInput {
+  title: string;
+  body?: string;
+  assignee?: string;
+  priority?: number;
+  skills?: string[];
+  parents?: string[];
+  triage?: boolean;
+}
+
 interface TaskStore {
   tasks: OpTask[];
   hermesTasks: HermesTask[];
   summary: TaskSummary | null;
+  stats: KanbanStats | null;
   isLoading: boolean;
   error: string | null;
   lastSync: Date | null;
   fetchTasks: () => Promise<void>;
   fetchSummary: () => void;
+  fetchStats: () => Promise<void>;
+  fetchTaskDetail: (taskId: string) => Promise<TaskDetail | null>;
   addHermesTask: (title: string, body?: string, assignee?: string, priority?: number) => Promise<HermesTask | null>;
+  createTask: (input: CreateTaskInput) => Promise<HermesTask | null>;
   claimHermesTaskById: (taskId: string) => Promise<boolean>;
   completeHermesTaskById: (taskId: string) => Promise<boolean>;
   blockHermesTaskById: (taskId: string, reason: string) => Promise<boolean>;
+  unblockTask: (taskId: string, reason?: string) => Promise<boolean>;
+  promoteTask: (taskId: string, reason?: string, force?: boolean) => Promise<boolean>;
+  scheduleTask: (taskId: string, reason?: string) => Promise<boolean>;
+  archiveTask: (taskId: string) => Promise<boolean>;
+  assignTask: (taskId: string, profile: string) => Promise<boolean>;
+  reassignTask: (taskId: string, profile: string, reclaim?: boolean, reason?: string) => Promise<boolean>;
+  reclaimTask: (taskId: string) => Promise<boolean>;
+  commentTask: (taskId: string, text: string, author?: string) => Promise<boolean>;
+  editTask: (taskId: string, result: string, summary?: string, metadata?: string) => Promise<boolean>;
+  linkTasks: (parentId: string, childId: string) => Promise<boolean>;
+  unlinkTasks: (parentId: string, childId: string) => Promise<boolean>;
 }
 
 const mapHermesToOp = (t: HermesTask): OpTask => ({
@@ -75,79 +115,101 @@ function summarize(ht: HermesTask[]): TaskSummary {
   };
 }
 
-export const useTaskStore = create<TaskStore>((set, get) => ({
-  tasks: [],
-  hermesTasks: [],
-  summary: null,
-  isLoading: false,
-  error: null,
-  lastSync: null,
-
-  fetchTasks: async () => {
-    set({ isLoading: true });
+export const useTaskStore = create<TaskStore>((set, get) => {
+  // Run a mutation, then refresh the board + stats. Surfaces errors to `error`.
+  const mutate = async (label: string, fn: () => Promise<unknown>): Promise<boolean> => {
     try {
-      const { tasks } = await getHermesTasks();
-      const ht = tasks || [];
-      set({
-        hermesTasks: ht,
-        tasks: ht.map(mapHermesToOp),
-        summary: summarize(ht),
-        error: null,
-        isLoading: false,
-        lastSync: new Date(),
-      });
-    } catch (err) {
-      const msg = errMessage(err);
-      console.error('[TaskStore] fetchTasks failed:', msg);
-      set({ isLoading: false, error: msg });
-    }
-  },
-
-  fetchSummary: () => set({ summary: summarize(get().hermesTasks) }),
-
-  addHermesTask: async (title, body, assignee, priority) => {
-    try {
-      const data = await createHermesTask({ title, body, assignee, priority });
+      await fn();
       await get().fetchTasks();
-      return (data?.task as HermesTask) ?? null;
+      void get().fetchStats();
+      return true;
     } catch (err) {
       const msg = errMessage(err);
-      console.error('[TaskStore] addHermesTask failed:', msg);
+      console.error(`[TaskStore] ${label} failed:`, msg);
       set({ error: msg });
-      return null;
-    }
-  },
-
-  claimHermesTaskById: async (taskId) => {
-    try {
-      await claimHermesTask(taskId);
-      await get().fetchTasks();
-      return true;
-    } catch (err) {
-      console.error('[TaskStore] claim failed:', errMessage(err));
       return false;
     }
-  },
+  };
 
-  completeHermesTaskById: async (taskId) => {
-    try {
-      await completeHermesTask(taskId);
-      await get().fetchTasks();
-      return true;
-    } catch (err) {
-      console.error('[TaskStore] complete failed:', errMessage(err));
-      return false;
-    }
-  },
+  return {
+    tasks: [],
+    hermesTasks: [],
+    summary: null,
+    stats: null,
+    isLoading: false,
+    error: null,
+    lastSync: null,
 
-  blockHermesTaskById: async (taskId, reason) => {
-    try {
-      await blockHermesTask(taskId, reason);
-      await get().fetchTasks();
-      return true;
-    } catch (err) {
-      console.error('[TaskStore] block failed:', errMessage(err));
-      return false;
-    }
-  },
-}));
+    fetchTasks: async () => {
+      set({ isLoading: true });
+      try {
+        const { tasks } = await getHermesTasks();
+        const ht = tasks || [];
+        set({
+          hermesTasks: ht,
+          tasks: ht.map(mapHermesToOp),
+          summary: summarize(ht),
+          error: null,
+          isLoading: false,
+          lastSync: new Date(),
+        });
+      } catch (err) {
+        const msg = errMessage(err);
+        console.error('[TaskStore] fetchTasks failed:', msg);
+        set({ isLoading: false, error: msg });
+      }
+    },
+
+    fetchSummary: () => set({ summary: summarize(get().hermesTasks) }),
+
+    fetchStats: async () => {
+      try {
+        const stats = await getKanbanStats();
+        set({ stats });
+      } catch (err) {
+        console.error('[TaskStore] fetchStats failed:', errMessage(err));
+      }
+    },
+
+    fetchTaskDetail: async (taskId) => {
+      try {
+        return await getHermesTaskDetail(taskId);
+      } catch (err) {
+        console.error('[TaskStore] fetchTaskDetail failed:', errMessage(err));
+        return null;
+      }
+    },
+
+    createTask: async (input) => {
+      try {
+        const data = await createHermesTask(input);
+        await get().fetchTasks();
+        void get().fetchStats();
+        return (data?.task as HermesTask) ?? null;
+      } catch (err) {
+        const msg = errMessage(err);
+        console.error('[TaskStore] createTask failed:', msg);
+        set({ error: msg });
+        return null;
+      }
+    },
+
+    addHermesTask: async (title, body, assignee, priority) =>
+      get().createTask({ title, body, assignee, priority }),
+
+    claimHermesTaskById: (taskId) => mutate('claim', () => claimHermesTask(taskId)),
+    completeHermesTaskById: (taskId) => mutate('complete', () => completeHermesTask(taskId)),
+    blockHermesTaskById: (taskId, reason) => mutate('block', () => blockHermesTask(taskId, reason)),
+    unblockTask: (taskId, reason) => mutate('unblock', () => unblockHermesTask(taskId, reason)),
+    promoteTask: (taskId, reason, force) => mutate('promote', () => promoteHermesTask(taskId, reason, force)),
+    scheduleTask: (taskId, reason) => mutate('schedule', () => scheduleHermesTask(taskId, reason)),
+    archiveTask: (taskId) => mutate('archive', () => archiveHermesTask(taskId)),
+    assignTask: (taskId, profile) => mutate('assign', () => assignHermesTask(taskId, profile)),
+    reassignTask: (taskId, profile, reclaim, reason) => mutate('reassign', () => reassignHermesTask(taskId, profile, reclaim, reason)),
+    reclaimTask: (taskId) => mutate('reclaim', () => reclaimHermesTask(taskId)),
+    commentTask: (taskId, text, author) => mutate('comment', () => commentHermesTask(taskId, text, author)),
+    editTask: (taskId, result, summary, metadata) => mutate('edit', () => editHermesTask(taskId, result, summary, metadata)),
+    linkTasks: (parentId, childId) => mutate('link', () => linkHermesTasks(parentId, childId)),
+    unlinkTasks: (parentId, childId) => mutate('unlink', () => unlinkHermesTasks(parentId, childId)),
+  };
+});
