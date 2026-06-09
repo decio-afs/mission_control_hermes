@@ -126,6 +126,19 @@ class BlockTaskPayload(BaseModel):
     reason: str
 
 
+class CreateCronPayload(BaseModel):
+    # Schedule like '30m', 'every 2h', or '0 9 * * *'.
+    schedule: str
+    # Optional self-contained prompt / task instruction for the agent run.
+    prompt: Optional[str] = None
+    name: Optional[str] = None
+    # Delivery target: origin, local, telegram, discord, signal, or platform:chat_id.
+    deliver: Optional[str] = None
+    # Optional repeat count (integer as string is fine; passed through verbatim).
+    repeat: Optional[str] = None
+    skills: Optional[list[str]] = None
+
+
 class SpawnPayload(BaseModel):
     goal: str
     model: Optional[str] = None
@@ -363,6 +376,26 @@ def get_cron():
     resp = run_hermes("cron", "list")
     jobs = parse_cron_list(resp["stdout"])
     return {"jobs": jobs, "raw": resp["stdout"]}
+
+
+@app.post("/api/hermes/cron")
+def create_cron(payload: CreateCronPayload):
+    """Create a scheduled job via `hermes cron create <schedule> [prompt] …`."""
+    args = ["cron", "create", payload.schedule]
+    if payload.prompt:
+        args.append(payload.prompt)
+    if payload.name:
+        args += ["--name", payload.name]
+    if payload.deliver:
+        args += ["--deliver", payload.deliver]
+    if payload.repeat:
+        args += ["--repeat", payload.repeat]
+    for skill in payload.skills or []:
+        args += ["--skill", skill]
+    resp = run_hermes(*args)
+    # Return the freshly-parsed job list so the UI can refresh without a second call.
+    jobs = parse_cron_list(run_hermes("cron", "list")["stdout"])
+    return {"message": resp["stdout"], "jobs": jobs}
 
 
 @app.post("/api/hermes/cron/{job_id}/run")

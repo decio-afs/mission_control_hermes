@@ -134,6 +134,24 @@ export async function runHermesCron(jobId: string) {
   return data;
 }
 
+export interface CreateCronRequest {
+  /** Schedule like '30m', 'every 2h', or '0 9 * * *'. */
+  schedule: string;
+  /** Optional self-contained prompt / task instruction. */
+  prompt?: string;
+  name?: string;
+  /** Delivery target: origin, local, telegram, discord, signal, or platform:chat_id. */
+  deliver?: string;
+  repeat?: string;
+  skills?: string[];
+}
+
+export async function createHermesCron(payload: CreateCronRequest): Promise<{ message: string; jobs: HermesCronJob[] }> {
+  // Creating a cron job can shell out to `hermes cron create`; keep within client default timeout.
+  const { data } = await bridge.post('/api/hermes/cron', payload);
+  return data;
+}
+
 export interface AgentCreateRequest {
   name: string;
   role: string;

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTaskStore } from '../stores/useTaskStore';
-import { getHermesCron, runHermesCron, decomposeTask, type HermesCronJob } from '../lib/api';
+import { getHermesCron, runHermesCron, createHermesCron, decomposeTask, errMessage, type HermesCronJob } from '../lib/api';
 import { Panel, Pill } from '../components/cyberpunk/ui';
 
 const FILTERS = ['ALL', 'READY', 'RUNNING', 'BLOCKED', 'DONE', 'FAILED'] as const;
@@ -23,6 +23,14 @@ export default function OperationsCenter() {
   const [decomposeLoading, setDecomposeLoading] = useState(false);
   const [decomposeResult, setDecomposeResult] = useState<{ title: string; body?: string; assignee?: string }[] | null>(null);
 
+  // Cron-creation modal state.
+  const [cronOpen, setCronOpen] = useState(false);
+  const [cronSchedule, setCronSchedule] = useState('');
+  const [cronPrompt, setCronPrompt] = useState('');
+  const [cronName, setCronName] = useState('');
+  const [cronLoading, setCronLoading] = useState(false);
+  const [cronError, setCronError] = useState<string | null>(null);
+
   const {
     tasks, summary, error, lastSync,
     fetchTasks, addHermesTask, claimHermesTaskById, completeHermesTaskById, blockHermesTaskById,
@@ -44,6 +52,28 @@ export default function OperationsCenter() {
     if (!title.trim()) return;
     const t = await addHermesTask(title.trim(), body.trim() || undefined);
     if (t) { setTitle(''); setBody(''); }
+  };
+
+  const handleCreateCron = async () => {
+    if (!cronSchedule.trim()) return;
+    setCronLoading(true);
+    setCronError(null);
+    try {
+      const data = await createHermesCron({
+        schedule: cronSchedule.trim(),
+        prompt: cronPrompt.trim() || undefined,
+        name: cronName.trim() || undefined,
+      });
+      setCron(data.jobs || []);
+      setCronOpen(false);
+      setCronSchedule('');
+      setCronPrompt('');
+      setCronName('');
+    } catch (err) {
+      setCronError(errMessage(err));
+    } finally {
+      setCronLoading(false);
+    }
   };
 
   const handleDecompose = async () => {
@@ -153,7 +183,19 @@ export default function OperationsCenter() {
           {error && <div className="mt-2 text-[10px] font-mono text-red-400">⚠ {error}</div>}
         </Panel>
 
-        <Panel label="SCHEDULED JOBS · hermes cron" right={<span>{cron.length} jobs</span>} className="flex-1 min-h-0">
+        <Panel
+          label="SCHEDULED JOBS · hermes cron"
+          right={(
+            <span className="flex items-center gap-2">
+              <button
+                onClick={() => { setCronOpen(true); setCronError(null); }}
+                className="border border-[#f64e6e]/40 text-[#f64e6e] px-2 py-0.5 hover:bg-[#f64e6e]/10"
+              >+ NEW</button>
+              <span>{cron.length} jobs</span>
+            </span>
+          )}
+          className="flex-1 min-h-0"
+        >
           <div className="flex flex-col gap-1 overflow-auto h-full">
             {cron.map((j) => (
               <div key={j.id} className="flex items-center justify-between px-2 py-1.5 border border-white/[0.06] bg-[#080808]">
@@ -206,6 +248,50 @@ export default function OperationsCenter() {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cron-creation Modal */}
+      {cronOpen && (
+        <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="bg-[#0A0A0A] border border-white/10 w-full max-w-lg mx-4">
+            <div className="px-3 h-[26px] flex items-center justify-between border-b border-white/10 bg-[#080808]">
+              <span className="font-mono text-[10px] tracking-[0.2em] uppercase font-bold text-[#b8b8b8]">SCHEDULE CRON JOB</span>
+              <button onClick={() => setCronOpen(false)} className="text-[#545454] hover:text-white text-[11px]">✕</button>
+            </div>
+            <div className="p-3 flex flex-col gap-2">
+              <label className="text-[9px] font-mono tracking-[0.2em] uppercase text-[#545454]">SCHEDULE</label>
+              <input
+                value={cronSchedule}
+                onChange={(e) => setCronSchedule(e.target.value)}
+                placeholder="30m · every 2h · 0 9 * * *"
+                className="bg-[#080808] border border-white/10 px-2 py-1.5 text-[11px] font-mono text-white placeholder:text-[#545454] focus:border-[#f64e6e] outline-none"
+              />
+              <label className="text-[9px] font-mono tracking-[0.2em] uppercase text-[#545454]">NAME <span className="text-[#363636]">(optional)</span></label>
+              <input
+                value={cronName}
+                onChange={(e) => setCronName(e.target.value)}
+                placeholder="morning-brief"
+                className="bg-[#080808] border border-white/10 px-2 py-1.5 text-[11px] text-white placeholder:text-[#545454] focus:border-[#f64e6e] outline-none"
+              />
+              <label className="text-[9px] font-mono tracking-[0.2em] uppercase text-[#545454]">PROMPT <span className="text-[#363636]">(optional)</span></label>
+              <textarea
+                value={cronPrompt}
+                onChange={(e) => setCronPrompt(e.target.value)}
+                placeholder="Self-contained instruction the agent runs on schedule…"
+                rows={3}
+                className="bg-[#080808] border border-white/10 px-2 py-1.5 text-[11px] text-white placeholder:text-[#545454] focus:border-[#f64e6e] outline-none resize-none"
+              />
+              {cronError && <div className="text-[10px] font-mono text-red-400">⚠ {cronError}</div>}
+              <button
+                onClick={() => void handleCreateCron()}
+                disabled={cronLoading || !cronSchedule.trim()}
+                className="text-[10px] font-mono border border-[#f64e6e]/40 bg-[#f64e6e]/10 text-[#f64e6e] py-1.5 hover:bg-[#f64e6e]/20 disabled:opacity-30"
+              >
+                {cronLoading ? 'SCHEDULING…' : '+ SCHEDULE JOB'}
+              </button>
             </div>
           </div>
         </div>
