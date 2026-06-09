@@ -16,7 +16,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<Layout />}>
-          <Route index element={<Navigate to="/command" replace />} />
+          <Route index element={<Navigate to="/network" replace />} />
           {/* Live Hermes-backed modules */}
           <Route path="command" element={<Cyberpunk />} />
           <Route path="network" element={<GhostNetwork />} />
@@ -36,7 +36,7 @@ function App() {
           <Route path="broadcast" element={<Navigate to="/design-lab?tab=broadcast" replace />} />
           <Route path="signal-intelligence" element={<Navigate to="/war-room" replace />} />
           <Route path="cyberpunk" element={<Navigate to="/command" replace />} />
-          <Route path="*" element={<Navigate to="/command" replace />} />
+          <Route path="*" element={<Navigate to="/network" replace />} />
         </Route>
       </Routes>
     </Router>

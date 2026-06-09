@@ -38,7 +38,7 @@ export default function Layout() {
   const [diagOpen, setDiagOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const location = useLocation();
-  const activeModule = MODULES.find(m => location.pathname.startsWith(m.path))?.id || 'command';
+  const activeModule = MODULES.find(m => location.pathname.startsWith(m.path))?.id || 'network';
 
   const { nodes, fetchTopology } = useGhostStore();
   const { vitals, fetchHermesStatus } = useSystemStore();
