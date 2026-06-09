@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useGhostStore } from '../stores/useGhostStore';
 import { useTaskStore } from '../stores/useTaskStore';
 import { useSystemStore } from '../stores/useSystemStore';
-import { getHermesAgents, getHermesCron, runHermesCron, spawnHermesAgent, errMessage, type HermesAgent, type HermesCronJob } from '../lib/api';
+import { getHermesAgents, getHermesCron, spawnHermesAgent, errMessage, type HermesAgent, type HermesCronJob } from '../lib/api';
 
 /**
  * Cyberpunk Mission Control — Hermes-powered dashboard
@@ -44,9 +45,9 @@ function Pill({ children, tone = 'neutral' }: { children: React.ReactNode; tone?
   );
 }
 
-function Panel({ label, children, right }: { label?: string; children: React.ReactNode; right?: React.ReactNode }) {
+function Panel({ label, children, right, className = '' }: { label?: string; children: React.ReactNode; right?: React.ReactNode; className?: string }) {
   return (
-    <div className="bg-[#0A0A0A] border border-white/[0.08] flex flex-col">
+    <div className={`bg-[#0A0A0A] border border-white/[0.08] flex flex-col ${className}`}>
       {label && (
         <div className="px-3 h-[26px] flex items-center justify-between border-b border-white/10 shrink-0 bg-[#080808]">
           <span className="text-[10px] font-mono tracking-[0.2em] uppercase font-bold text-[#b8b8b8]">{label}</span>
@@ -140,16 +141,6 @@ export default function Cyberpunk() {
     pushLog(`completing ${id}`);
     const ok = await completeHermesTaskById(id);
     pushLog(ok ? `completed ${id}` : `complete failed ${id}`, ok ? '#10b981' : '#ef4444');
-  }
-
-  async function handleRunCron(id: string) {
-    pushLog(`triggering cron ${id}`);
-    try {
-      await runHermesCron(id);
-      pushLog(`cron ${id} triggered`, '#10b981');
-    } catch (err) {
-      pushLog(`cron failed: ${errMessage(err)}`, '#ef4444');
-    }
   }
 
   async function handleSpawn() {
@@ -285,28 +276,30 @@ export default function Cyberpunk() {
 
         {/* Cron + Actions */}
         <div className="flex flex-col gap-4">
-          <Panel label="CRON JOBS" right={<span>SCHEDULED</span>}>
-            <div className="flex flex-col gap-2 mc-scroll max-h-[180px] overflow-auto">
+          {/* Read-only cron summary. Full cron CRUD (create / run / inspect) now
+              lives in Operations — this is just an at-a-glance status that links
+              there, avoiding duplicate cron controls across two tabs. */}
+          <Panel label="CRON JOBS" right={<Link to="/operations" className="hover:text-[#f64e6e]">MANAGE →</Link>}>
+            <div className="flex items-center gap-4 mb-2">
+              <Stat label="JOBS" value={cronJobs.length} tone="white" />
+              <Stat label="ACTIVE" value={cronJobs.filter((j) => j.status === 'active').length} tone="good" />
+            </div>
+            <div className="flex flex-col gap-1.5 mc-scroll max-h-[120px] overflow-auto">
               {cronJobs.map((j) => (
-                <div key={j.id} className="flex flex-col gap-1 border border-white/5 bg-[#080808] px-2 py-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono text-[#545454]">{j.id.slice(0, 12)}</span>
-                    <span className={`text-[9px] font-mono px-1.5 py-0.5 ${j.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white/5 text-[#b8b8b8]'}`}>
-                      {j.status}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-white truncate">{j.name || 'Unnamed Job'}</div>
-                  <div className="text-[9px] font-mono text-[#545454]">{j.schedule}</div>
-                  <button
-                    onClick={() => void handleRunCron(j.id)}
-                    className="mt-1 text-[9px] font-mono border border-white/10 py-1 hover:border-[#f64e6e] hover:text-[#f64e6e]"
-                  >
-                    RUN NOW
-                  </button>
+                <div key={j.id} className="flex items-center gap-2 border border-white/5 bg-[#080808] px-2 py-1">
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${j.status === 'active' ? 'bg-emerald-400' : 'bg-[#545454]'}`} />
+                  <span className="text-[11px] text-white truncate flex-1">{j.name || 'Unnamed Job'}</span>
+                  <span className="text-[9px] font-mono text-[#545454] shrink-0">{j.schedule}</span>
                 </div>
               ))}
               {cronJobs.length === 0 && <div className="text-[10px] font-mono text-[#545454]">No cron jobs loaded.</div>}
             </div>
+            <Link
+              to="/operations"
+              className="mt-2 block text-center text-[9px] font-mono border border-white/10 py-1.5 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e] transition-colors"
+            >
+              OPEN OPERATIONS · SCHEDULE / RUN JOBS
+            </Link>
           </Panel>
 
           <Panel label="DISPATCH AGENT">
@@ -355,7 +348,7 @@ export default function Cyberpunk() {
       </div>
 
       {/* Log tail */}
-      <Panel label="BRIDGE LOG" right={<span>LIVE</span>}>
+      <Panel label="BRIDGE LOG" right={<span>LIVE</span>} className="mt-4">
         <div className="font-mono text-[10px] leading-[1.5] h-[140px] overflow-auto mc-scroll">
           {logs.map((l, i) => (
             <div key={i} className="flex gap-2">
