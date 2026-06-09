@@ -1,26 +1,297 @@
 import axios from 'axios';
 
-// The base API URL will point to the FastAPI server running on the VPS
-// Ex: "https://api.yourdomain.com"
-const API_BASE_URL = (import.meta.env.VITE_VPS_API_URL || 'https://openclaw.daagencyllc.com:8000') + '/api';
-const API_KEY = import.meta.env.VITE_API_KEY || '';
+// ---------------------------------------------------------------------------
+// Hermes Bridge client
+// ---------------------------------------------------------------------------
+// Mission Control talks to the local Hermes bridge (hermes-bridge.py), a thin
+// FastAPI wrapper around the `hermes` CLI. There is no other backend — every
+// screen renders live data sourced from Hermes.
+const BRIDGE_BASE_URL = import.meta.env.VITE_BRIDGE_URL || 'http://localhost:8767';
 
-export const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+export const bridge = axios.create({
+  baseURL: BRIDGE_BASE_URL,
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 30000,
 });
 
-// Automatically inject the API key for every request
-api.interceptors.request.use(
-  (config) => {
-    if (API_KEY) {
-      config.headers['X-API-Key'] = API_KEY;
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
+/** Extract a human-readable message from an unknown thrown value. */
+export function errMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'string') return e;
+  return 'Unknown error';
+}
+
+// ---------------------------------------------------------------------------
+// Types — mirror the Hermes CLI JSON shapes
+// ---------------------------------------------------------------------------
+export interface HermesAgent {
+  name: string;
+  on_disk: boolean;
+  counts: Record<string, number>;
+}
+
+export interface HermesTask {
+  id: string;
+  title: string;
+  body: string | null;
+  assignee: string | null;
+  status: string;
+  priority: number;
+  tenant: string | null;
+  workspace_kind: string;
+  workspace_path: string | null;
+  branch_name: string | null;
+  created_by: string | null;
+  created_at: number;
+  started_at: number | null;
+  completed_at: number | null;
+  result: string | null;
+  skills: string[];
+  max_retries: number | null;
+  session_id: string | null;
+  workflow_template_id: string | null;
+  current_step_key: string | null;
+}
+
+export interface HermesCronJob {
+  id: string;
+  status: string;
+  name?: string;
+  schedule?: string;
+  repeat?: string;
+  deliver?: string;
+  script?: string;
+}
+
+export interface HermesStatus {
+  hermes_version: string;
+  bridge: string;
+}
+
+export interface HermesActivity {
+  id: string;
+  agent: string;
+  action: string;
+  timestamp: number;
+  status: string;
+}
+
+export interface HermesBriefing {
+  summary: string;
+  trend: string[];
+  fin: string[];
+  arc: string[];
+  forecast: string[];
+  prompts: string[];
+  directives: Array<{ sev: 'HIGH' | 'WARN' | 'INFO'; t: string; msg: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// Bridge API helpers
+// ---------------------------------------------------------------------------
+export async function getHermesStatus(): Promise<HermesStatus> {
+  const { data } = await bridge.get('/api/hermes/status');
+  return data;
+}
+
+export async function getHermesAgents(): Promise<{ agents: HermesAgent[] }> {
+  const { data } = await bridge.get('/api/hermes/agents');
+  return data;
+}
+
+export async function getHermesTasks(): Promise<{ tasks: HermesTask[] }> {
+  const { data } = await bridge.get('/api/hermes/tasks');
+  return data;
+}
+
+export async function createHermesTask(payload: { title: string; body?: string; assignee?: string; priority?: number }) {
+  const { data } = await bridge.post('/api/hermes/tasks', payload);
+  return data;
+}
+
+export async function claimHermesTask(taskId: string) {
+  const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/claim`);
+  return data;
+}
+
+export async function completeHermesTask(taskId: string) {
+  const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/complete`);
+  return data;
+}
+
+export async function blockHermesTask(taskId: string, reason: string) {
+  const { data } = await bridge.post(`/api/hermes/tasks/${taskId}/block`, { reason });
+  return data;
+}
+
+export async function getHermesCron(): Promise<{ jobs: HermesCronJob[]; raw: string }> {
+  const { data } = await bridge.get('/api/hermes/cron');
+  return data;
+}
+
+export async function runHermesCron(jobId: string) {
+  const { data } = await bridge.post(`/api/hermes/cron/${jobId}/run`);
+  return data;
+}
+
+export interface AgentCreateRequest {
+  name: string;
+  role: string;
+  skills: string[];
+  model?: string;
+}
+
+export interface AgentUpdateRequest {
+  name?: string;
+  role?: string;
+  skills?: string[];
+  model?: string;
+}
+
+export interface SpawnRequest {
+  goal: string;
+  model?: string;
+  skills?: string[];
+}
+
+export interface TaskDecomposeRequest {
+  task: string;
+}
+
+export interface TaskDecomposeResponse {
+  subtasks: { title: string; body?: string; assignee?: string }[];
+}
+
+export async function createHermesAgent(payload: AgentCreateRequest) {
+  const { data } = await bridge.post('/api/hermes/agents', payload);
+  return data;
+}
+
+export async function updateHermesAgent(id: string, payload: AgentUpdateRequest) {
+  const { data } = await bridge.put(`/api/hermes/agents/${id}`, payload);
+  return data;
+}
+
+export async function deleteHermesAgent(id: string) {
+  const { data } = await bridge.delete(`/api/hermes/agents/${id}`);
+  return data;
+}
+
+export async function spawnAgentOnTask(agentId: string, taskId: string) {
+  const { data } = await bridge.post(`/api/hermes/agents/${agentId}/spawn`, { task_id: taskId });
+  return data;
+}
+
+export async function decomposeTask(payload: TaskDecomposeRequest) {
+  const { data } = await bridge.post('/api/hermes/tasks/decompose', payload, { timeout: 125000 });
+  return data;
+}
+
+export async function spawnHermesAgent(payload: SpawnRequest) {
+  // LLM spawns are slow; the bridge allows 120s, so override the 30s client default.
+  const { data } = await bridge.post('/api/hermes/spawn', payload, { timeout: 125000 });
+  return data;
+}
+
+export interface ChatAttachmentUpload {
+  name: string;
+  mime?: string;
+  /** base64-encoded contents (raw base64 or a full data: URL) */
+  data: string;
+}
+
+export async function sendHermesChat(payload: { message: string; model?: string; skills?: string[]; attachments?: ChatAttachmentUpload[] }): Promise<{ response: string; stderr: string; success: boolean }> {
+  // Chat round-trips invoke the model and can take well over the 30s client
+  // default; the bridge allows 180s, so match it here to avoid premature aborts.
+  const { data } = await bridge.post('/api/hermes/chat', payload, { timeout: 185000 });
+  return data;
+}
+
+export async function getHermesBriefing(): Promise<HermesBriefing> {
+  const { data } = await bridge.get('/api/hermes/briefing');
+  return data;
+}
+
+export async function getHermesActivity(): Promise<{ activities: HermesActivity[] }> {
+  const { data } = await bridge.get('/api/hermes/activity');
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Sentinel AI Daily Digest types & fetchers
+// ---------------------------------------------------------------------------
+export interface SentinelStory {
+  title: string;
+  url: string;
+  source: string;
+  score: number;
+}
+
+export interface SentinelDigest {
+  generated_at: string;
+  total_stories: number;
+  sources: string[];
+  stories: SentinelStory[];
+}
+
+export interface SentinelArchiveEntry {
+  date: string;
+  size: number;
+  modified: string;
+}
+
+export interface SentinelArchive {
+  digests: SentinelArchiveEntry[];
+}
+
+export interface ContentCampaign {
+  id: string;
+  title: string;
+  status: 'ready' | 'running' | 'done' | 'blocked' | 'failed';
+  assignee: string;
+  priority: number;
+  platform: string;
+}
+
+export interface ContentDraft {
+  id: string;
+  title: string;
+  status: 'ready' | 'running' | 'done' | 'blocked' | 'failed';
+  assignee: string;
+  priority: number;
+  platform: string;
+}
+
+export interface ContentCalendarItem {
+  id: string;
+  title: string;
+  date: string;
+  status: 'ready' | 'running' | 'done' | 'blocked' | 'failed';
+  platform: string;
+}
+
+export interface ContentPipeline {
+  campaigns: ContentCampaign[];
+  drafts: ContentDraft[];
+  calendar: ContentCalendarItem[];
+}
+
+export async function getContentPipeline(): Promise<ContentPipeline> {
+  const { data } = await bridge.get('/api/content/pipeline');
+  return data;
+}
+
+export async function getSentinelDigest(): Promise<SentinelDigest> {
+  const { data } = await bridge.get('/api/sentinel/digest');
+  return data;
+}
+
+export async function getSentinelArchive(): Promise<SentinelArchive> {
+  const { data } = await bridge.get('/api/sentinel/archive');
+  return data;
+}
+
+export async function getSentinelDigestByDate(date: string): Promise<SentinelDigest> {
+  const { data } = await bridge.get(`/api/sentinel/digest/${date}`);
+  return data;
+}
