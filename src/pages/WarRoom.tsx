@@ -6,6 +6,7 @@ import { useActivityStore } from '../stores/useActivityStore';
 import { getHermesCron, type HermesCronJob } from '../lib/api';
 import { Panel, Sparkline, Ring, LogTail } from '../components/cyberpunk/ui';
 import AgentPerformance from '../components/AgentPerformance';
+import TaskThroughput from '../components/TaskThroughput';
 import { computeAgentMetrics } from '../lib/agentMetrics';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -29,6 +30,9 @@ export default function WarRoom() {
   // AGENT LOAD panel toggles between current load (running·queue) and the
   // historical performance leaderboard (throughput / success rate / avg duration).
   const [agentView, setAgentView] = useState<'load' | 'perf'>('load');
+  // TASK STATUS panel toggles between the current status breakdown (bar chart)
+  // and the throughput histogram (completions per hour over a trailing window).
+  const [taskView, setTaskView] = useState<'status' | 'flow'>('status');
   // `nowMs` drives the leaderboard's trailing-24h window; set in an effect (never
   // Date.now() during render) so the component stays render-pure for react-hooks.
   const [nowMs, setNowMs] = useState(0);
@@ -178,19 +182,38 @@ export default function WarRoom() {
 
       {/* Middle: task status + agent load */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 flex-1 min-h-0">
-        <Panel label="TASK STATUS BREAKDOWN" right={<span className={vitals.hermesOnline ? 'text-emerald-400' : 'text-red-400'}>● {vitals.hermesOnline ? 'LIVE' : 'OFFLINE'}</span>}>
-          <div className="h-full flex flex-col gap-2">
-            {statusBars.map((b) => (
-              <div key={b.name} className="flex items-center gap-2">
-                <span className="w-20 text-[10px] font-mono text-[#b8b8b8] uppercase">{b.name}</span>
-                <div className="flex-1 h-5 bg-[#080808] border border-white/5 relative">
-                  <div className="absolute inset-y-0 left-0" style={{ width: `${(b.v / barMax) * 100}%`, background: b.c, opacity: 0.75 }} />
+        <Panel
+          label={taskView === 'status' ? 'TASK STATUS BREAKDOWN' : 'TASK THROUGHPUT · per hour'}
+          right={(
+            <span className="flex items-center gap-2">
+              <button
+                onClick={() => setTaskView('status')}
+                className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${taskView === 'status' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+              >STATUS</button>
+              <button
+                onClick={() => setTaskView('flow')}
+                className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${taskView === 'flow' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+              >FLOW</button>
+              <span className={`hidden sm:inline ${vitals.hermesOnline ? 'text-emerald-400' : 'text-red-400'}`}>● {vitals.hermesOnline ? 'LIVE' : 'OFFLINE'}</span>
+            </span>
+          )}
+        >
+          {taskView === 'status' ? (
+            <div className="h-full flex flex-col gap-2">
+              {statusBars.map((b) => (
+                <div key={b.name} className="flex items-center gap-2">
+                  <span className="w-20 text-[10px] font-mono text-[#b8b8b8] uppercase">{b.name}</span>
+                  <div className="flex-1 h-5 bg-[#080808] border border-white/5 relative">
+                    <div className="absolute inset-y-0 left-0" style={{ width: `${(b.v / barMax) * 100}%`, background: b.c, opacity: 0.75 }} />
+                  </div>
+                  <span className="w-10 text-right text-[10px] font-mono tabular-nums text-white">{b.v}</span>
                 </div>
-                <span className="w-10 text-right text-[10px] font-mono tabular-nums text-white">{b.v}</span>
-              </div>
-            ))}
-            {statusBars.length === 0 && <div className="text-[10px] font-mono text-[#545454]">No task data from Hermes.</div>}
-          </div>
+              ))}
+              {statusBars.length === 0 && <div className="text-[10px] font-mono text-[#545454]">No task data from Hermes.</div>}
+            </div>
+          ) : (
+            <TaskThroughput tasks={hermesTasks} nowMs={nowMs} />
+          )}
         </Panel>
 
         <Panel
