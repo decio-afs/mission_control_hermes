@@ -10,6 +10,7 @@ import BridgeDiagnostics from './BridgeDiagnostics';
 import AgentDrillDown from './AgentDrillDown';
 import TaskNotifier from './TaskNotifier';
 import NotifyCenter from './NotifyCenter';
+import ShortcutsHelp from './ShortcutsHelp';
 
 // const ACCENT_OPTIONS: Record<string, string> = {
 //   coral:  '#f64e6e',
@@ -227,6 +228,13 @@ export default function Layout() {
             >
               <span className="text-[10px]">⌘K</span>
             </button>
+            <button
+              onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: '?' }))}
+              title="Keyboard shortcuts (?)"
+              className="hidden sm:flex items-center gap-1 text-[#545454] hover:text-white border border-white/10 hover:border-white/30 rounded-sm px-1.5 py-0.5 transition-colors"
+            >
+              <span className="text-[10px]">?</span>
+            </button>
             <span className="text-[#545454] hidden sm:inline">ZULU</span>
             <span className="text-white tabular-nums text-[12px] tracking-[0.15em]">
               {now.toISOString().slice(11, 19)}
@@ -260,6 +268,9 @@ export default function Layout() {
 
       {/* Headless watcher — fires desktop notifications on task-complete/fail. */}
       <TaskNotifier />
+
+      {/* Global "?" keyboard-shortcuts cheat-sheet — available on every route. */}
+      <ShortcutsHelp />
     </div>
   );
 }
