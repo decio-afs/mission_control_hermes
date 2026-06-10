@@ -29,9 +29,12 @@ export function Panel({ children, label, right, className = '', bodyClass = '', 
   return (
     <div className={`bg-[#0A0A0A] border border-white/[0.08] flex flex-col relative ${className}`}>
       {label && (
-        <div className="px-3 h-[26px] flex items-center justify-between border-b border-white/10 shrink-0 bg-[#080808]">
-          <Label className="text-[#b8b8b8]">{label}</Label>
-          <div className="flex items-center gap-2 text-[10px] text-[#545454] font-mono">{right}</div>
+        <div className="px-3 h-[26px] flex items-center justify-between gap-2 border-b border-white/10 shrink-0 bg-[#080808]">
+          {/* min-w-0 lets the label truncate instead of pushing the controls past
+              the panel edge when a header has both a long label and a busy `right`
+              slot (e.g. War Room's STATUS/FLOW + LIVE toggle on a narrow column). */}
+          <Label className="text-[#b8b8b8] truncate min-w-0">{label}</Label>
+          <div className="flex items-center gap-2 text-[10px] text-[#545454] font-mono shrink-0">{right}</div>
         </div>
       )}
       <div className={`${noPad ? '' : 'p-3'} ${bodyClass} relative flex-1 min-h-0`}>
