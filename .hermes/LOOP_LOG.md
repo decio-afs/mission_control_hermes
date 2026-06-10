@@ -16,7 +16,7 @@ do not push/PR. Keep LIVE Hermes-backed functionality intact; only consolidate r
 
 ---
 
-## Current State (8 tabs — Command + Agent Hub folded into Ghost Network in Run #6; topbar bell is now a Notification Center in Run #10)
+## Current State (8 tabs — Command + Agent Hub folded into Ghost Network in Run #6; topbar bell is now a Notification Center in Run #10; War Room gained a per-hour Throughput histogram in Run #11)
 
 Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 `Layout.tsx` (sidebar) and `CommandPalette.tsx`. To add/remove/reorder a tab, edit `nav.ts`.
@@ -24,7 +24,7 @@ Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 | # | Path | Page | Data | Notes |
 |---|------|------|------|-------|
 | 00 | `/network`     | Ghost Network              | LIVE | **Merged primary console.** NEXUS Orchestration Deck (orbital mesh + roster) **plus** the agent Registry CRUD (create/edit/delete/spawn via the new `useAgentCrud()` hook + `+ Agent` button) **plus** the ARCAN orchestrator command bar (directives, status, reassign) wired to the shared chat session. Detail panel `▦ INSPECT` → Agent Drill-Down. Absorbed the old Hermes Command + Agent Hub (Run #6). |
-| 01 | `/war-room`    | War Room                   | LIVE | Metrics gauges + task-status + **AGENT LOAD ↔ PERF toggle** (performance leaderboard, Run #6 — **now click-to-sort columns**, Run #8) + **TASKS/SIGNAL feed toggle**. |
+| 01 | `/war-room`    | War Room                   | LIVE | Metrics gauges + **TASK STATUS ↔ FLOW toggle** (status breakdown **or** the per-hour throughput histogram, Run #11) + **AGENT LOAD ↔ PERF toggle** (performance leaderboard, Run #6 — **now click-to-sort columns**, Run #8) + **TASKS/SIGNAL feed toggle**. |
 | 02 | `/operations`  | Operations Center          | LIVE | Full kanban CRUD + cron list/run/create + task decompose + **TaskDetailDrawer** (comments/events/runs/notify/boards/diagnostics + **⊞ Dependency Map**, Run #7 + **live-tail WORKER LOG**, Run #8). Single cron home. Receives ⌘F Task Search focus. |
 | 03 | `/chat`        | Ghost Comms (ChatTerminal) | LIVE | ARCAN multi-session orchestrator chat (persistent SQLite sessions, attachments, voice). |
 | 04 | `/factory`     | Content Factory            | LIVE | `useContentStore` → `/api/content/pipeline`. |
@@ -148,12 +148,15 @@ all survive in the Ghost Network detail panel).
       `min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis` to `.dbtn` so a long label in a
       shrunk ~110px `.dctrl` 1fr cell truncates with an ellipsis instead of overflowing its column at ≤1320px.
       Verified the computed style is live (`overflow:hidden`, `text-overflow:ellipsis`, `min-width:0px`).
-- [ ] **Ghost Network detail panel — `.vitals` / `.dstats` audit still pending.** Run #10 fixed `.dbtn`; the
-      `.vitals` 2-col grid (`grid-template-columns:1fr 1fr`, ~line 251 in `ghostNexus.css`) and the `.dstats`
-      3-col row are still un-audited at 1280px/1920px with a *long agent name + many tags*. The headless
-      `preview_eval` reports `window.innerWidth === 0` (a sandbox quirk — `scrollWidth`/`clientWidth` deltas are
-      unreliable there); measure via element `getBoundingClientRect()` widths against a parent rect instead, or
-      rely on the responsive `@media (max-width:1320px/1080px)` rules already in the file. Low priority.
+- [x] ~~Ghost Network detail panel — `.vitals` / `.dstats` audit~~ — DONE in Run #11. Audited both grids: the
+      rendered values are always short (`.vital .vv` = `String(onlineCount)` + a small unit; `.dstat .v` = a
+      percentage / small integer), so there is **no live overflow** today. Added **defensive** guards anyway so a
+      future long value can't break the grid: `.vital .vv` now `overflow:hidden; text-overflow:ellipsis;
+      white-space:nowrap; padding-right:72px` (the `padding-right` reserves room for the absolutely-positioned
+      60px `.vspark` so a long value can't run under the sparkline), and `.dstat`/`.dstat .v`/`.dstat .l` get
+      `min-width:0` + ellipsis so a wide value can't blow out the 3-col `1fr` grid on the ≤1320px panel. Verified
+      live: `.vital .vv` computed style reports `overflow:hidden`, `text-overflow:ellipsis`, `white-space:nowrap`,
+      `padding-right:72px`.
 - [ ] **AgentDrillDown skills row** — still no per-agent skills (GhostNode carries none). Needs a bridge
       field on the agent node. Low priority.
 - [ ] **Dependency Map polish (optional follow-up to Run #7):** progressive per-ring render (the BFS fetches
@@ -163,24 +166,78 @@ all survive in the Ghost Network detail panel).
       suffix instead of replacing the whole `<pre>` each 2s poll; auto-stop the stream when the task leaves
       `running`. Low priority.
 
-### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map; #8 Live Worker-Log Tail; #9 Completed-Task Desktop Notifications; #10 Notification Center dropdown)
+### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map; #8 Live Worker-Log Tail; #9 Completed-Task Desktop Notifications; #10 Notification Center dropdown; #11 Task Throughput Histogram)
 - [ ] **Pick ONE (none of the above):**
   1. **Keyboard-shortcuts cheat-sheet `?` overlay** — a global `?` (Shift+/) modal listing every shortcut now
-     live (⌘K palette, ⌘F task search, DIAG, 🔔 bell, Esc-to-close conventions, ⊞ MAP, ▶ LIVE). Pure static +
-     the nav list; no bridge. Good low-risk discoverability win — the topbar has grown several affordances
-     (Run #9 bell, Run #10 center), so a one-stop legend earns its keep.
+     live (⌘K palette, ⌘F task search, DIAG, 🔔 bell, Esc-to-close conventions, ⊞ MAP, ▶ LIVE, STATUS/FLOW &
+     LOAD/PERF toggles). Pure static + the nav list; no bridge. Good low-risk discoverability win — the topbar +
+     War Room have grown several affordances, so a one-stop legend earns its keep.
   2. **Saved task filter/view presets (Operations)** — let the operator save the current status+assignee+search
      filter combo as a named chip (persisted to `localStorage`), one click to re-apply. Pure client; no bridge.
   3. **Agent idle/stall watchdog** — flag agents that are `active` but have had `tasks_running > 0` with no
      activity event for >N minutes (cross-reference `useGhostStore` + `useActivityStore`). Surfaces stuck
      workers. Pure client aggregation; no bridge.
-  4. **Task throughput sparkline (War Room)** — a small time-bucketed sparkline of completed-tasks-per-hour
-     over the last N hours (bucket `useTaskStore.hermesTasks` by `completed_at`). Complements the Run #6
-     leaderboard with a temporal view. Pure client aggregation; no bridge.
+  4. **Throughput drill-in / SLA view (War Room or Operations)** — build *on top of* Run #11's `computeThroughput`:
+     a small "mean time-to-complete" trend (bucket `completed_at − started_at` per hour) or a stacked
+     created-vs-completed *backlog burn* line (cumulative created − cumulative done) to show whether the queue is
+     keeping up. Reuses the Run #11 lib; pure client. (Distinct from #11, which is raw completions-per-hour.)
+  5. **Cron next-fire countdown (Operations / War Room SCHEDULED)** — parse each cron `schedule` and show a live
+     "next run in …" countdown + a sortable next-fire column. Pure client (a small cron-expression parser); no
+     bridge — the job list is already polled.
 
 ---
 
 ## Run History (newest first — append, never overwrite)
+
+### 2026-06-10 — Run #11 (branch `auto/evolve-throughput-histogram`)
+
+**Inherited-state note.** Opened on the Run #10 branch tree (`auto/evolve-notify-center`), still carrying the
+concurrent Hermes self-audit's uncommitted churn (`.hermes/audit-*`, `scripts/audit-and-improve.py`,
+`BRAND_STRATEGY.md`). Left all of it untouched — not this run's deliverable; branched
+`auto/evolve-throughput-histogram` from HEAD and committed only my own files.
+
+**Tab audit findings (sanity pass).** Re-enumerated `src/lib/nav.ts` (**8 modules**, num 00–07), `App.tsx`, and
+the Layout sidebar. Consolidation remains complete — unchanged since Run #6. All redirects still resolve
+(`/command`,`/cyberpunk`,`/agent-hub` → `/network`; the 4 Design Lab legacy paths → `/design-lab?tab=…`;
+`/signal-intelligence` → `/war-room`; `*` → `/network`). No dead nav entry crept back. **No consolidation
+needed this run** — UI fix + new feature only, per the standing guidance.
+
+**UI fix — closed the long-pending `.vitals` / `.dstats` audit (Ghost Network detail panel).** Audited both
+grids in `src/pages/ghostNexus.css`: the rendered values are always short (`.vital .vv` = `String(onlineCount)`
++ a small unit; `.dstat .v` = a percentage / small integer from `GhostNetwork.tsx`), so there is **no live
+overflow today**. Added **defensive** guards anyway so a future long value can't break the fixed grids:
+`.vital .vv` → `overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:72px` (the
+`padding-right` reserves room for the absolutely-positioned 60px `.vspark` so a long value can't run *under* the
+sparkline), and `.dstat` / `.dstat .v` / `.dstat .l` → `min-width:0` + ellipsis so a wide value can't blow out
+the 3-col `1fr` row on the ≤1320px panel. **Verified live** on `/network`: `.vital .vv` computed style reports
+`overflow:hidden`, `text-overflow:ellipsis`, `white-space:nowrap`, `padding-right:72px`.
+
+**New feature — Task Throughput Histogram (War Room, STATUS ↔ FLOW toggle).** A temporal view of completion
+velocity — "how many tasks finished each hour" — complementing the Run #6 agent leaderboard (a per-agent total
+with no time axis). **Lib** (`src/lib/taskThroughput.ts`): `computeThroughput(tasks, nowMs, hours)` folds the
+live queue into fixed, UTC-aligned one-hour buckets over a trailing window, counting `done` by `completed_at`
+and `created` by `created_at`, and returns `{ buckets, totalDone, totalCreated, peak, peakLabel, avgPerHour }`.
+UTC-hour alignment keeps bucket boundaries stable between polls; `nowMs` is **passed in** (never `Date.now()` in
+render) so it stays render-pure, mirroring `agentMetrics`. **Component** (`src/components/TaskThroughput.tsx`):
+a bar histogram (one bar per hour) with a faint sky "created" demand backdrop behind each coral "completed" bar,
+the in-progress current hour drawn as a diagonal-hatch bar, hover-to-reveal per-hour counts + a full `title`
+tooltip, periodic x-axis hour ticks, a DONE / PEAK / AVG summary line, a COMPLETED/CREATED legend, and a
+**12H / 24H / 48H window selector**. **Wiring** (`src/pages/WarRoom.tsx`): the TASK STATUS BREAKDOWN panel now
+carries a `STATUS` / `FLOW` toggle in its header (the LIVE/OFFLINE dot moved beside it); `FLOW` swaps the status
+bars for `<TaskThroughput tasks={hermesTasks} nowMs={nowMs} />`, reusing the panel's already-seeded `nowMs`
+(0ms-timeout seed + 30s tick). **No new bridge endpoint** — pure client fold of the already-polled task store.
+**How to access:** War Room → TASK STATUS panel header → click **FLOW** (then **12H/24H/48H** to widen the
+window). **Verified live** on `/war-room` (offline sandbox, so counts are 0): FLOW renders the panel as
+`TASK THROUGHPUT · per hour` with the DONE/PEAK/AVG summary + COMPLETED/CREATED legend + 12H/24H/48H selector;
+the histogram renders **12 bars at 12H and 48 bars at 48H** (window switch confirmed), bar `title`s read
+`"14h:00 — 0 done · 0 created"` (UTC bucketing correct), **no console errors**. (Real non-zero bars need live
+completions, which the offline sandbox can't produce; the count path is type-checked and exercised by the
+empty-window branch.)
+
+**Verify.** `npm run build` ✓ (tsc + vite, **123 modules**, up from 121 — `taskThroughput.ts` +
+`TaskThroughput.tsx`), `npm run lint` ✓ (**0 errors, 0 warnings**), and the live Vite preview pass above on
+`/war-room` (FLOW histogram + window switch) and `/network` (`.vital .vv` computed-style guard), no console
+errors.
 
 ### 2026-06-10 — Run #10 (branch `auto/evolve-notify-center`)
 
