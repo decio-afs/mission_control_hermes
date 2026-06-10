@@ -5,8 +5,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTaskStore } from '../stores/useTaskStore';
 import { Pill } from './cyberpunk/ui';
 import TaskDependencyGraph from './TaskDependencyGraph';
+import WorkerLogStream from './WorkerLogStream';
 import {
-  getHermesTaskLog, getHermesTaskContext, getTaskNotifications, subscribeTaskNotify, unsubscribeTaskNotify,
+  getHermesTaskContext, getTaskNotifications, subscribeTaskNotify, unsubscribeTaskNotify,
   type TaskDetail, type NotifySubscription,
 } from '../lib/api';
 
@@ -84,8 +85,7 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
   const [notifySubs, setNotifySubs] = useState<NotifySubscription[]>([]);
   const [nPlatform, setNPlatform] = useState('telegram');
   const [nChatId, setNChatId] = useState('');
-  // log / context
-  const [log, setLog] = useState<string | null>(null);
+  // context (worker log is self-contained in <WorkerLogStream/>)
   const [context, setContext] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -293,11 +293,9 @@ export default function TaskDetailDrawer({ taskId, profiles, allTasks, onClose, 
               </div>
             </Section>
 
-            {/* worker log (lazy) */}
+            {/* worker log — live-tailable (▶ LIVE re-polls every 2s while running) */}
             <Section title="WORKER LOG">
-              {log === null
-                ? <Btn busy={busy} id="log" label="LOAD WORKER LOG" cls="border-white/15 text-[#b8b8b8] hover:border-[#f64e6e] hover:text-[#f64e6e] w-full" onClick={async () => { setBusy('log'); const r = await getHermesTaskLog(taskId, 8000).catch(() => ({ log: '(no log file for this task)' })); setLog(r.log || '(empty)'); setBusy(null); }} />
-                : <pre className="text-[9px] font-mono text-[#9aa3b5] whitespace-pre-wrap max-h-52 overflow-auto bg-[#050505] border border-white/10 p-2">{log}</pre>}
+              <WorkerLogStream taskId={taskId} isRunning={status === 'running'} />
             </Section>
 
             {/* assembled context (lazy) */}
