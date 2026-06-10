@@ -16,7 +16,7 @@ do not push/PR. Keep LIVE Hermes-backed functionality intact; only consolidate r
 
 ---
 
-## Current State (8 tabs — Command + Agent Hub folded into Ghost Network in Run #6; topbar bell is now a Notification Center in Run #10; War Room gained a per-hour Throughput histogram in Run #11)
+## Current State (8 tabs — Command + Agent Hub folded into Ghost Network in Run #6; topbar bell is now a Notification Center in Run #10; War Room gained a per-hour Throughput histogram in Run #11; topbar gained a `?` keyboard-shortcuts cheat-sheet in Run #12)
 
 Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 `Layout.tsx` (sidebar) and `CommandPalette.tsx`. To add/remove/reorder a tab, edit `nav.ts`.
@@ -89,6 +89,14 @@ all survive in the Ghost Network detail panel).
   and the desktop-toast **ON/OFF toggle moved into the dropdown header** (preserving Run #9's mute
   control + the blocked/unsupported hint). `CLEAR` wipes the session log. **No new bridge endpoint**
   — pure client history of the already-diffed task store. **How to access:** click the topbar bell.
+- **Keyboard-Shortcuts Cheat-Sheet (Run #12):** a global `?` (Shift+/) overlay (`src/components/ShortcutsHelp.tsx`,
+  mounted once in `Layout.tsx`) listing every shortcut + one-glyph affordance now live, grouped into Global
+  (⌘K / ⌘F / ? / Esc / ↑↓ / ↵), Topbar (☰ / 🔔 / DIAG / ⌕⌘F / ⌘K), War Room (STATUS·FLOW, 12/24/48H, LOAD·PERF,
+  sortable leaderboard, TASKS·SIGNAL) and Operations task-drawer (⊞ MAP, ▶LIVE·⏸PAUSE, ⟳, +NEW). Opens on a bare
+  `?` from anywhere **except** a text field (guarded on `e.target` tag / `isContentEditable` so the char still
+  reaches inputs, the chat box, task titles) or via a topbar `?` button (dispatches the same key event); Esc /
+  backdrop close; the two-column `<kbd>` legend scrolls within `max-h-[80vh]`. Pure static — no store, no bridge.
+  **How to access:** press `?` anywhere, or click the topbar `?` button.
 - **Agent Drill-Down (Run #4):** a global right-side slide-over (`src/components/AgentDrillDown.tsx`)
   mounted once in `Layout.tsx`, opened from any roster surface via the tiny
   `useAgentDrilldownStore` (`open(name)`/`close()`). Shows the agent's live status/queue,
@@ -157,6 +165,15 @@ all survive in the Ghost Network detail panel).
       `min-width:0` + ellipsis so a wide value can't blow out the 3-col `1fr` grid on the ≤1320px panel. Verified
       live: `.vital .vv` computed style reports `overflow:hidden`, `text-overflow:ellipsis`, `white-space:nowrap`,
       `padding-right:72px`.
+- [x] ~~Shared `Panel` header overflow guard~~ — DONE in Run #12. The reusable header row
+      (`src/components/cyberpunk/ui.tsx`) packed `<Label>` + a `right` controls slot into a fixed-height
+      (`h-[26px]`) `justify-between` flex row with no overflow handling, so a long label + a busy `right` slot
+      (e.g. War Room's STATUS/FLOW + LIVE toggle on a narrow ≥lg half-column) could push the controls past the
+      panel edge. Added `gap-2` + `min-w-0 truncate` on the label (flexbox blockifies the `<span>` so the ellipsis
+      applies) and `shrink-0` on the right slot. **Verified live** on `/war-room`: the label computes
+      `overflow:hidden / text-overflow:ellipsis / white-space:nowrap / min-width:0`, the right slot
+      `flex-shrink:0`, and the header reports `scrollWidth === clientWidth` (no horizontal overflow). High-leverage
+      — fixes every `Panel` header app-wide, not just War Room.
 - [ ] **AgentDrillDown skills row** — still no per-agent skills (GhostNode carries none). Needs a bridge
       field on the agent node. Low priority.
 - [ ] **Dependency Map polish (optional follow-up to Run #7):** progressive per-ring render (the BFS fetches
@@ -166,28 +183,71 @@ all survive in the Ghost Network detail panel).
       suffix instead of replacing the whole `<pre>` each 2s poll; auto-stop the stream when the task leaves
       `running`. Low priority.
 
-### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map; #8 Live Worker-Log Tail; #9 Completed-Task Desktop Notifications; #10 Notification Center dropdown; #11 Task Throughput Histogram)
+### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map; #8 Live Worker-Log Tail; #9 Completed-Task Desktop Notifications; #10 Notification Center dropdown; #11 Task Throughput Histogram; #12 Keyboard-Shortcuts Cheat-Sheet)
 - [ ] **Pick ONE (none of the above):**
-  1. **Keyboard-shortcuts cheat-sheet `?` overlay** — a global `?` (Shift+/) modal listing every shortcut now
-     live (⌘K palette, ⌘F task search, DIAG, 🔔 bell, Esc-to-close conventions, ⊞ MAP, ▶ LIVE, STATUS/FLOW &
-     LOAD/PERF toggles). Pure static + the nav list; no bridge. Good low-risk discoverability win — the topbar +
-     War Room have grown several affordances, so a one-stop legend earns its keep.
-  2. **Saved task filter/view presets (Operations)** — let the operator save the current status+assignee+search
+  1. **Saved task filter/view presets (Operations)** — let the operator save the current status+assignee+search
      filter combo as a named chip (persisted to `localStorage`), one click to re-apply. Pure client; no bridge.
-  3. **Agent idle/stall watchdog** — flag agents that are `active` but have had `tasks_running > 0` with no
+  2. **Agent idle/stall watchdog** — flag agents that are `active` but have had `tasks_running > 0` with no
      activity event for >N minutes (cross-reference `useGhostStore` + `useActivityStore`). Surfaces stuck
      workers. Pure client aggregation; no bridge.
-  4. **Throughput drill-in / SLA view (War Room or Operations)** — build *on top of* Run #11's `computeThroughput`:
+  3. **Throughput drill-in / SLA view (War Room or Operations)** — build *on top of* Run #11's `computeThroughput`:
      a small "mean time-to-complete" trend (bucket `completed_at − started_at` per hour) or a stacked
      created-vs-completed *backlog burn* line (cumulative created − cumulative done) to show whether the queue is
      keeping up. Reuses the Run #11 lib; pure client. (Distinct from #11, which is raw completions-per-hour.)
-  5. **Cron next-fire countdown (Operations / War Room SCHEDULED)** — parse each cron `schedule` and show a live
+  4. **Cron next-fire countdown (Operations / War Room SCHEDULED)** — parse each cron `schedule` and show a live
      "next run in …" countdown + a sortable next-fire column. Pure client (a small cron-expression parser); no
-     bridge — the job list is already polled.
+     bridge — the job list is already polled. Pairs naturally with the Run #12 cheat-sheet's `+NEW` entry.
+  5. **Bridge log / activity export** — a one-click "copy / download recent activity (JSON or text)" from the War
+     Room SIGNAL feed or the Notification Center, for pasting a quick incident report. Pure client over the
+     already-polled `useActivityStore` / `useNotifyStore.history`; no bridge.
 
 ---
 
 ## Run History (newest first — append, never overwrite)
+
+### 2026-06-10 — Run #12 (branch `auto/evolve-shortcuts-help`)
+
+**Inherited-state note.** Opened on the Run #11 branch tree (`auto/evolve-throughput-histogram`), still carrying
+the concurrent Hermes self-audit's uncommitted churn (`.hermes/audit-*`, `scripts/audit-and-improve.py`,
+`BRAND_STRATEGY.md`). Left all of it untouched — not this run's deliverable; branched `auto/evolve-shortcuts-help`
+from HEAD and committed only my own files.
+
+**Tab audit findings (sanity pass).** Re-enumerated `src/lib/nav.ts` (**8 modules**, num 00–07), `App.tsx`, and
+the Layout sidebar. Consolidation remains complete — unchanged since Run #6. All redirects still resolve
+(`/command`,`/cyberpunk`,`/agent-hub` → `/network`; the 4 Design Lab legacy paths → `/design-lab?tab=…`;
+`/signal-intelligence` → `/war-room`; `*` → `/network`). No dead nav entry crept back. **No consolidation
+needed this run** — UI fix + new feature only, per the standing guidance.
+
+**UI fix — shared `Panel` header overflow guard (`src/components/cyberpunk/ui.tsx`).** The reusable panel header
+(`px-3 h-[26px] flex items-center justify-between`) put `<Label>` and the `right` controls slot in one
+fixed-height row with no overflow handling, so a long label plus a busy `right` slot — e.g. War Room's
+`STATUS/FLOW` + `LIVE` toggle once the middle grid goes 2-up on a narrower window — could shove the controls past
+the panel's right border. Added `gap-2` to the header, `min-w-0 truncate` to the label (flexbox blockifies the
+`<span>`, so the ellipsis takes effect under genuine constraint) and `shrink-0` to the right slot so the controls
+keep their size and the **label** is what yields. **High-leverage** — every `Panel` header in the app inherits the
+guard, not just War Room. **Verified live** on `/war-room`: the `TASK STATUS BREAKDOWN` label computes
+`overflow:hidden / text-overflow:ellipsis / white-space:nowrap / min-width:0px`, the right slot `flex-shrink:0`,
+and the header reports `scrollWidth === clientWidth` (zero horizontal overflow) at a 1000px viewport.
+
+**New feature — Keyboard-Shortcuts Cheat-Sheet (`?` overlay).** The topbar + War Room + the Operations task drawer
+have accumulated a lot of shortcuts and one-glyph affordances; this is the one-stop legend. **Component:**
+`src/components/ShortcutsHelp.tsx` (mounted once in `Layout.tsx`) — a centered modal with a two-column,
+`max-h-[80vh]`-scrolling `<kbd>` legend grouped into **Global** (⌘K / Ctrl+K, ⌘F / Ctrl+F, ?, Esc, ↑↓, ↵),
+**Topbar affordances** (☰ collapse, 🔔 notification center, DIAG, ⌕⌘F, ⌘K), **War Room** (STATUS·FLOW,
+12H/24H/48H, LOAD·PERF, sortable leaderboard headers, TASKS·SIGNAL) and **Operations — task drawer** (⊞ MAP,
+▶LIVE·⏸PAUSE, ⟳ refresh, +NEW cron). Opens on a bare `?` (Shift+/) from anywhere **except** a text field —
+guarded on `e.target` tag (`INPUT`/`TEXTAREA`) + `isContentEditable` so the `?` char still reaches inputs, the
+chat box and task-title fields — and toggles closed on a second `?`; also opened by a new topbar **`?` button**
+(dispatches the same key event). Esc / backdrop close. Pure static (a `GROUPS` literal + the `<kbd>` chips) — **no
+store, no bridge endpoint**. **How to access:** press `?` anywhere, or click the topbar `?` button. **Verified
+live** on `/network` + `/war-room`: `?` opens the overlay (**35 `<kbd>` chips across the 4 groups**, fits the
+viewport), a second `?` and Esc both close it, the topbar `?` button opens it, and a `?` dispatched from a focused
+`<input>` does **not** toggle it (typing-guard holds). **No console errors.** (Screenshots time out in this
+sandbox — verified via `preview_eval` DOM inspection + `preview_console_logs`, as in Runs #7–#11.)
+
+**Verify.** `npm run build` ✓ (tsc + vite, **124 modules**, up from 123 — `ShortcutsHelp.tsx`), `npm run lint` ✓
+(**0 errors, 0 warnings**), and the live Vite preview pass above on `/network` + `/war-room` (overlay open/close/
+toggle + topbar button + typing-guard, and the `Panel` header computed-style guard), no console errors.
 
 ### 2026-06-10 — Run #11 (branch `auto/evolve-throughput-histogram`)
 
