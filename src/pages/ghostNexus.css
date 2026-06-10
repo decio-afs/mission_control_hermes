@@ -316,13 +316,17 @@
 @keyframes nxDots { 0% { content: '·'; } 33% { content: '··'; } 66% { content: '···'; } }
 
 /* ============================================================ COMMAND BAR */
-.nexus .commandbar { display: flex; align-items: center; gap: 14px; padding: 12px 20px; border-top: 1px solid var(--line); background: linear-gradient(0deg, rgba(8,8,8,.98), rgba(8,8,8,.86)); position: relative; z-index: 2; }
+/* flex-wrap + cmd-input min-width guard: the bar packs session-select + ARCAN
+   prefix + input + 3 quick-chips + Execute into one row. With the 286px rail and
+   430px detail panel both on screen the centre column gets narrow (esp. ≤1320px),
+   so the nowrap row used to overflow. Now it wraps cleanly instead of clipping. */
+.nexus .commandbar { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 12px 20px; border-top: 1px solid var(--line); background: linear-gradient(0deg, rgba(8,8,8,.98), rgba(8,8,8,.86)); position: relative; z-index: 2; }
 .nexus .cmd-pre { display: flex; align-items: center; gap: 9px; font-family: var(--font-mono); font-size: 12px; color: var(--accent); white-space: nowrap; }
 .nexus .cmd-pre .pr { color: var(--accent-2); }
-.nexus .cmd-input { flex: 1; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 15px; color: var(--txt); font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.02em; outline: none; transition: border-color .15s, box-shadow .15s; }
+.nexus .cmd-input { flex: 1 1 200px; min-width: 200px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 15px; color: var(--txt); font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.02em; outline: none; transition: border-color .15s, box-shadow .15s; }
 .nexus .cmd-input::placeholder { color: var(--txt-faint); }
 .nexus .cmd-input:focus { border-color: var(--line-hard); box-shadow: 0 0 0 1px var(--line-hard), 0 0 24px -10px var(--accent); }
-.nexus .chips { display: flex; gap: 7px; }
+.nexus .chips { display: flex; flex-wrap: wrap; gap: 7px; }
 .nexus .qchip { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; color: var(--txt-2); padding: 8px 11px; border: 1px solid var(--line); border-radius: var(--r); cursor: pointer; white-space: nowrap; background: var(--surface); transition: border-color .14s, color .14s; }
 .nexus .qchip:hover { border-color: var(--line-hard); color: var(--accent); }
 .nexus .cmd-send { font-family: var(--font-ui); font-weight: 700; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; padding: 11px 20px; border-radius: var(--r); cursor: pointer; border: 1px solid var(--accent); color: #0A0A0A; background: linear-gradient(180deg, var(--accent), color-mix(in oklab,var(--accent) 70%, #000)); box-shadow: 0 0 22px -6px var(--accent); transition: transform .08s, box-shadow .15s; }
