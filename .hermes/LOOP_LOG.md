@@ -24,8 +24,8 @@ Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 | # | Path | Page | Data | Notes |
 |---|------|------|------|-------|
 | 00 | `/network`     | Ghost Network              | LIVE | **Merged primary console.** NEXUS Orchestration Deck (orbital mesh + roster) **plus** the agent Registry CRUD (create/edit/delete/spawn via the new `useAgentCrud()` hook + `+ Agent` button) **plus** the ARCAN orchestrator command bar (directives, status, reassign) wired to the shared chat session. Detail panel `▦ INSPECT` → Agent Drill-Down. Absorbed the old Hermes Command + Agent Hub (Run #6). |
-| 01 | `/war-room`    | War Room                   | LIVE | Metrics gauges + task-status + **AGENT LOAD ↔ PERF toggle** (new performance leaderboard, Run #6) + **TASKS/SIGNAL feed toggle**. |
-| 02 | `/operations`  | Operations Center          | LIVE | Full kanban CRUD + cron list/run/create + task decompose + **TaskDetailDrawer** (comments/events/runs/notify/boards/diagnostics + **⊞ Dependency Map**, Run #7). Single cron home. Receives ⌘F Task Search focus. |
+| 01 | `/war-room`    | War Room                   | LIVE | Metrics gauges + task-status + **AGENT LOAD ↔ PERF toggle** (performance leaderboard, Run #6 — **now click-to-sort columns**, Run #8) + **TASKS/SIGNAL feed toggle**. |
+| 02 | `/operations`  | Operations Center          | LIVE | Full kanban CRUD + cron list/run/create + task decompose + **TaskDetailDrawer** (comments/events/runs/notify/boards/diagnostics + **⊞ Dependency Map**, Run #7 + **live-tail WORKER LOG**, Run #8). Single cron home. Receives ⌘F Task Search focus. |
 | 03 | `/chat`        | Ghost Comms (ChatTerminal) | LIVE | ARCAN multi-session orchestrator chat (persistent SQLite sessions, attachments, voice). |
 | 04 | `/factory`     | Content Factory            | LIVE | `useContentStore` → `/api/content/pipeline`. |
 | 05 | `/briefing`    | Briefing Terminal          | LIVE | `useBriefingStore` (briefing + sentinel digest). |
@@ -58,6 +58,12 @@ all survive in the Ghost Network detail panel).
   coral), and lets you re-center on any node (RECENTER restores the root) or jump a node into
   the drawer (`↗`). **No new bridge endpoint** — pure client BFS over `getHermesTaskDetail`
   (parents/children) with metadata resolved from the polled `useTaskStore`.
+- **Live Worker-Log Tail (Run #8):** the TaskDetailDrawer's WORKER LOG section
+  (`src/components/WorkerLogStream.tsx`) is no longer load-once. A `▶ LIVE` / `⏸ PAUSE` toggle
+  re-polls `getHermesTaskLog(taskId, 8000)` every 2s, replacing the buffer with the freshest tail
+  and auto-following the bottom (un-pins if you scroll up to read earlier output). Shows a pulsing
+  `STREAMING · 2s` indicator while live, a `⟳ REFRESH` + "task idle — tail is static" hint when
+  paused. **No new bridge endpoint** — pure client polling of the existing log route.
 - **Agent Drill-Down (Run #4):** a global right-side slide-over (`src/components/AgentDrillDown.tsx`)
   mounted once in `Layout.tsx`, opened from any roster surface via the tiny
   `useAgentDrilldownStore` (`open(name)`/`close()`). Shows the agent's live status/queue,
@@ -106,41 +112,87 @@ all survive in the Ghost Network detail panel).
 
 ### UI / Display Fixes
 - [x] ~~Nexus detail header two `.dclose` buttons crowding the name~~ — DONE in Run #6.
-- [x] ~~Nexus detail panel: the two stacked `.dctrl` button rows (orchestrator directives + registry CRUD)
-      sat flush, reading as one cramped 6-button block~~ — DONE in Run #7: added
-      `.nexus .detail .dctrl + .dctrl { margin-top:8px; padding-top:10px; border-top:1px solid var(--line); }`
-      so the CRUD group is visually separated. Verified the rule is loaded.
+- [x] ~~Nexus detail panel: the two stacked `.dctrl` button rows~~ — DONE in Run #7 (`.dctrl + .dctrl` separator).
+- [x] ~~War Room AGENT PERFORMANCE — leaderboard is static-sort (throughput). Make column headers
+      click-to-sort (done / rate / avg)~~ — DONE in Run #8. All 7 columns (Agent/Done/Run/Fail/Rate/Avg/24h)
+      are click-to-sort with a ▼/▲ direction indicator; the default (null sortKey) preserves the upstream
+      composite rank from `computeAgentMetrics`; nulls (no resolved tasks / no duration) always sink to the
+      bottom. Verified live (Fail ▼ → narratrix f5 top; Agent ▲ → alphabetical).
 - [ ] **Ghost Network full-density audit still pending.** Run #7 only fixed the `.dctrl` spacing — the broader
       audit at 1280px and 1920px (mesh + roster + detail + CRUD modals + command bar + session switcher all on
       one screen) is **not done**. Open the right detail panel with a *long agent name + many tags* and check
       the telemetry/vitals grid and command bar for clipping/overflow at both widths. Use `preview_resize` +
-      `preview_inspect` (the in-session `preview_screenshot` was timing out — rely on inspect/snapshot).
-- [ ] **War Room AGENT PERFORMANCE** — leaderboard is static-sort (throughput). Make column headers
-      click-to-sort (done / rate / avg). Low priority.
+      `preview_inspect` (the in-session `preview_screenshot` was timing out — rely on inspect/eval/snapshot).
 - [ ] **AgentDrillDown skills row** — still no per-agent skills (GhostNode carries none). Needs a bridge
       field on the agent node. Low priority.
-- [ ] **Dependency Map polish (optional follow-up to Run #7):** the BFS fetches each node's detail serially
-      per ring against the live bridge (~1.4–5s/call), so a 28-node chain can take a few seconds to settle —
-      currently shows a single "tracing dependency chain…" state. Consider a progressive render (draw nodes as
-      each ring resolves) or a tiny per-ring progress count. Also: `workflow_template_id`/`current_step_key`
-      are still always `null` in live data (swarm-only) — if/when swarm tasks appear, add a workflow-step
-      stepper lane on top of the DAG. Low priority.
+- [ ] **Dependency Map polish (optional follow-up to Run #7):** the BFS fetches each node's detail per ring
+      against the live bridge (~1.4–5s/call), so a 28-node chain can take a few seconds to settle — currently a
+      single "tracing dependency chain…" state. Consider a progressive render (draw nodes as each ring resolves)
+      or a per-ring progress count. Also: `workflow_template_id`/`current_step_key` are still always `null` in
+      live data (swarm-only) — if/when swarm tasks appear, add a workflow-step stepper lane. Low priority.
+- [ ] **WorkerLogStream polish (optional follow-up to Run #8):** the tail is a full-buffer replace each poll
+      (the bridge returns the last 8000 bytes, not a byte-offset delta), so on a very chatty log the `<pre>`
+      re-renders the whole tail every 2s. Fine at current volumes; if it ever flickers, diff against the prior
+      tail and only append the new suffix. Also consider auto-stopping the stream when the task's status leaves
+      `running` (currently the operator pauses manually). Low priority.
 
-### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map)
+### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map; #8 Live Worker-Log Tail)
 - [ ] **Pick ONE (none of the above):**
-  1. **Live worker-log streaming** — `getHermesTaskLog(taskId, bytes)` already exists; add a poll-tail mode to
-     the TaskDetailDrawer's WORKER LOG section (currently load-once): a ▶/⏸ toggle that re-fetches every ~2s
-     while a task is `running`, appends new tail bytes, and auto-scrolls. Pure client polling — no new endpoint.
-  2. **Completed-task desktop notifications** — watch `useTaskStore.hermesTasks` for `running/ready → done|failed`
+  1. **Completed-task desktop notifications** — watch `useTaskStore.hermesTasks` for `running/ready → done|failed`
      transitions and fire an Electron `new Notification(...)` (guard for the renderer/`window.Notification`),
-     with a global enable toggle persisted to `localStorage`. Closes the "did my task finish?" loop.
-  3. **Keyboard-shortcuts cheat-sheet `?` overlay** — a global `?` (Shift+/) modal listing every shortcut now
-     live (⌘K palette, ⌘F task search, DIAG, Esc-to-close conventions, the new ⊞ MAP). Pure static + the nav
+     with a global enable toggle persisted to `localStorage`. Closes the "did my task finish?" loop. (Pair well
+     with the new live worker-log tail: notify, then jump into the drawer to read the final log.)
+  2. **Keyboard-shortcuts cheat-sheet `?` overlay** — a global `?` (Shift+/) modal listing every shortcut now
+     live (⌘K palette, ⌘F task search, DIAG, Esc-to-close conventions, ⊞ MAP, ▶ LIVE). Pure static + the nav
      list; no bridge. Good low-risk discoverability win.
+  3. **Saved task filter/view presets (Operations)** — let the operator save the current status+assignee+search
+     filter combo as a named chip (persisted to `localStorage`), one click to re-apply. Pure client; no bridge.
 
 ---
 
 ## Run History (newest first — append, never overwrite)
+
+### 2026-06-09 — Run #8 (branch `auto/evolve-log-stream`)
+
+**Inherited-state note.** Opened on the Run #7 branch tree, still carrying the concurrent Hermes self-audit's
+uncommitted churn (`.hermes/audit-*`, `scripts/audit-and-improve.py`, `BRAND_STRATEGY.md`). Left all of it
+untouched — not this run's deliverable; branched `auto/evolve-log-stream` from HEAD and committed only my files.
+
+**Tab audit findings (sanity pass).** Re-enumerated `src/lib/nav.ts` (**8 modules**, num 00–07), `App.tsx`, and
+the Layout sidebar. Consolidation remains complete — unchanged since Run #6. All redirects still resolve
+(`/command`,`/cyberpunk`,`/agent-hub` → `/network`; the 4 Design Lab legacy paths → `/design-lab?tab=…`;
+`/signal-intelligence` → `/war-room`; `*` → `/network`). No dead nav entry crept back. **No consolidation
+needed this run** — UI fix + new feature only, per the standing guidance.
+
+**UI fix — War Room AGENT PERFORMANCE leaderboard is now click-to-sort.** Run #6's leaderboard rendered a single
+static throughput rank. Reworked `src/components/AgentPerformance.tsx`: all 7 column headers
+(Agent/Done/Run/Fail/Rate/Avg/24h) are now clickable, each toggling a local `sortKey`+`dir`. First click sorts
+that column (desc for metrics, asc for the agent name); clicking the active column flips direction; a `▼`/`▲`
+glyph marks the active header (coral). The **default (null `sortKey`) preserves the upstream composite rank**
+from `computeAgentMetrics` (done → success → activity), and null metrics (no resolved tasks / no duration)
+always sink to the bottom regardless of direction. Pure local UI state — no change to the metrics aggregation.
+**Verified live** (8 agents, real data): `Fail ▼` → narratrix (5 fails) to the top, header shows `Fail ▼`;
+`Agent ▲` → strict alphabetical (claudelink…signalscraper). Default rank (signalscraper top) intact on load.
+
+**New feature — Live Worker-Log Tail (▶ LIVE / ⏸ PAUSE).** The TaskDetailDrawer's WORKER LOG section was
+load-once (a `getHermesTaskLog` snapshot). New component `src/components/WorkerLogStream.tsx` turns it into a
+live tail: a `▶ LIVE` toggle re-polls `getHermesTaskLog(taskId, 8000)` every 2s (immediate first fetch, then
+`setInterval`; a `cancelled` flag guards a late response after unmount/toggle-off), **replacing the buffer with
+the freshest tail** each cycle. Auto-follow keeps the `<pre>` pinned to the bottom as new lines arrive, but if
+the operator scrolls up to read earlier output the `pinned` ref goes false and their position is left alone
+(re-pins whenever streaming restarts). While live it shows a pulsing `STREAMING · 2s` indicator; paused it shows
+`⏸→▶`, a `⟳ REFRESH` one-shot, and a "task idle — tail is static" hint when the task isn't `running`. Graceful
+fallback to `(no log file for this task)` / `(empty)` on a failed/empty fetch. **No new bridge endpoint** — pure
+client polling of the existing `/api/hermes/tasks/{id}/log` route. The drawer's old local `log` state +
+`getHermesTaskLog` import were removed (now fully encapsulated in the component). **How to access:** Operations →
+click a task → WORKER LOG → `▶ LIVE` (or `LOAD WORKER LOG` for a one-shot). **Verified live** (drawer on
+`t_a33fad25`): LOAD + ▶ LIVE present → ▶ LIVE flips to `⏸ PAUSE` + `STREAMING · 2s` pulse, `<pre>` renders;
+⏸ PAUSE → back to `▶ LIVE` + `⟳ REFRESH` + idle hint; log fetched successfully (empty file → graceful
+`(empty)`). **No React/render console errors** — only the pre-existing background bridge-poll `Network Error`s
+(fetchTasks/fetchTopology every 7s, the documented baseline).
+
+**Verify.** `npm run build` ✓ (tsc + vite, **118 modules**, up from 117), `npm run lint` ✓ (**0 errors,
+0 warnings**), and the live Vite preview pass above on `/war-room` (sort) and `/operations` (log tail).
 
 ### 2026-06-09 — Run #7 (branch `auto/evolve-dependency-graph`)
 
