@@ -211,6 +211,46 @@ export function parseSchedule(raw: string | undefined, nowMs: number): ParsedSch
   return { kind: 'unknown', label: text, nextMs: null };
 }
 
+/**
+ * Every fire time within `(nowMs, nowMs + windowMs]` for any schedule kind,
+ * soonest first, capped at `maxFires`. Cron expressions are walked forward via
+ * the same stepper used for the next-fire countdown; interval jobs have no real
+ * anchor, so they are anchored at `nowMs` (first fire one period out). Returns
+ * `[]` for unparseable / empty schedules. Pure — no `Date.now()`, no bridge.
+ */
+export function upcomingFires(
+  raw: string | undefined,
+  nowMs: number,
+  windowMs: number,
+  maxFires = 64,
+): number[] {
+  const text = (raw || '').trim();
+  if (!text || windowMs <= 0) return [];
+  const end = nowMs + windowMs;
+  const out: number[] = [];
+
+  const interval = parseInterval(text);
+  if (interval) {
+    for (let t = nowMs + interval.ms; t <= end && out.length < maxFires; t += interval.ms) out.push(t);
+    return out;
+  }
+
+  const cron = parseCron(text);
+  if (cron) {
+    let cursor = nowMs;
+    while (out.length < maxFires) {
+      const next = nextCron(cron, cursor);
+      // nextCron returns the first match strictly after cursor's minute, so
+      // advancing cursor to each fire can never repeat or stall.
+      if (next === null || next > end) break;
+      out.push(next);
+      cursor = next;
+    }
+    return out;
+  }
+  return [];
+}
+
 /** Format a positive duration (ms) as a compact "2d 4h" / "3h 12m" / "45m" countdown. */
 export function formatCountdown(deltaMs: number): string {
   if (deltaMs <= 0) return 'now';

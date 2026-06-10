@@ -12,6 +12,7 @@ import { useTaskFocusStore } from '../stores/useTaskFocusStore';
 import { getHermesCron, runHermesCron, createHermesCron, decomposeTask, errMessage, type HermesCronJob, type HermesTask } from '../lib/api';
 import { parseSchedule, formatCountdown, fireLabel, type ParsedSchedule } from '../lib/cronSchedule';
 import TaskDetailDrawer from '../components/TaskDetailDrawer';
+import CronTimeline from '../components/CronTimeline';
 
 const COLUMNS: { key: string; label: string; tone: string }[] = [
   { key: 'triage', label: 'TRIAGE', tone: '#6b7280' },
@@ -344,6 +345,7 @@ export default function OperationsCenter() {
       {/* CRON MODAL */}
       {cronOpen && (
         <Modal title="SCHEDULED JOBS · hermes cron" onClose={() => setCronOpen(false)}>
+          {cron.length > 0 && <CronTimeline jobs={cron} nowMs={cronNow} />}
           {cron.length > 0 && (
             <div className="flex items-center justify-between px-2 text-[8px] font-mono tracking-[0.2em] uppercase text-[#545454]">
               <span>JOB · SCHEDULE</span><span>NEXT FIRE ▾</span>
