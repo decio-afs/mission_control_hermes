@@ -40,8 +40,10 @@ all survive in the Ghost Network detail panel).
 
 - **Global topbar tooling (in `Layout.tsx`):** `⌘K` command palette (`CommandPalette.tsx`),
   a **`⌕ ⌘F` Task Search** button (Run #5 — `src/components/TaskSearch.tsx`),
-  **and** a **DIAG** button (Run #3) that opens the **Bridge Diagnostics** modal
-  (`src/components/BridgeDiagnostics.tsx`) — a green/red dot mirrors `vitals.hermesOnline`.
+  a **DIAG** button (Run #3) that opens the **Bridge Diagnostics** modal
+  (`src/components/BridgeDiagnostics.tsx`) — a green/red dot mirrors `vitals.hermesOnline` —
+  **and** a **🔔/🔕 NOTIFY/MUTED** bell toggle (Run #9) for completed-task desktop
+  notifications (`useNotifyStore` + headless `TaskNotifier.tsx`).
 - **Task Search (Run #5):** a global `⌘F`/`Ctrl+F` overlay (`src/components/TaskSearch.tsx`,
   mounted once in `Layout.tsx`) that fuzzy-searches the whole Hermes queue
   (`useTaskStore.hermesTasks`) by title / id / assignee / status, with status-filter chips.
@@ -64,6 +66,17 @@ all survive in the Ghost Network detail panel).
   and auto-following the bottom (un-pins if you scroll up to read earlier output). Shows a pulsing
   `STREAMING · 2s` indicator while live, a `⟳ REFRESH` + "task idle — tail is static" hint when
   paused. **No new bridge endpoint** — pure client polling of the existing log route.
+- **Completed-Task Desktop Notifications (Run #9):** a headless watcher
+  (`src/components/TaskNotifier.tsx`, mounted once in `Layout.tsx`) diffs the globally-polled
+  `useTaskStore.hermesTasks` against the previous poll and fires an OS `Notification` whenever a
+  task crosses from a **non-terminal → terminal** status (`done|completed|failed`). Seeds silently
+  on first poll (never a startup burst for pre-existing done tasks); de-dupes per task via the
+  notification `tag`; clicking a notification calls `useTaskFocusStore.focus(id)` + routes to
+  `/operations` (pairs with the live worker-log tail — notify, then read the final log). On/off
+  state lives in `src/stores/useNotifyStore.ts` (persisted to `localStorage` `mc-notify-enabled`,
+  re-validated against `Notification.permission` on load), toggled from the topbar **🔔/🔕** bell
+  (requests OS permission on enable; shows blocked/unsupported in its tooltip). **No new bridge
+  endpoint** — pure client diff of the existing task store.
 - **Agent Drill-Down (Run #4):** a global right-side slide-over (`src/components/AgentDrillDown.tsx`)
   mounted once in `Layout.tsx`, opened from any roster surface via the tiny
   `useAgentDrilldownStore` (`open(name)`/`close()`). Shows the agent's live status/queue,
@@ -113,44 +126,93 @@ all survive in the Ghost Network detail panel).
 ### UI / Display Fixes
 - [x] ~~Nexus detail header two `.dclose` buttons crowding the name~~ — DONE in Run #6.
 - [x] ~~Nexus detail panel: the two stacked `.dctrl` button rows~~ — DONE in Run #7 (`.dctrl + .dctrl` separator).
-- [x] ~~War Room AGENT PERFORMANCE — leaderboard is static-sort (throughput). Make column headers
-      click-to-sort (done / rate / avg)~~ — DONE in Run #8. All 7 columns (Agent/Done/Run/Fail/Rate/Avg/24h)
-      are click-to-sort with a ▼/▲ direction indicator; the default (null sortKey) preserves the upstream
-      composite rank from `computeAgentMetrics`; nulls (no resolved tasks / no duration) always sink to the
-      bottom. Verified live (Fail ▼ → narratrix f5 top; Agent ▲ → alphabetical).
-- [ ] **Ghost Network full-density audit still pending.** Run #7 only fixed the `.dctrl` spacing — the broader
-      audit at 1280px and 1920px (mesh + roster + detail + CRUD modals + command bar + session switcher all on
-      one screen) is **not done**. Open the right detail panel with a *long agent name + many tags* and check
-      the telemetry/vitals grid and command bar for clipping/overflow at both widths. Use `preview_resize` +
-      `preview_inspect` (the in-session `preview_screenshot` was timing out — rely on inspect/eval/snapshot).
+- [x] ~~War Room AGENT PERFORMANCE leaderboard click-to-sort~~ — DONE in Run #8.
+- [x] ~~Ghost Network command bar overflow~~ — PARTIALLY DONE in Run #9. The `.commandbar` packed
+      session-select + ARCAN prefix + input + 3 chips + Execute into one **nowrap** flex row that overflowed
+      horizontally on narrow centre columns (≤1320px). Added `flex-wrap:wrap` to `.commandbar` + `.chips`, and
+      `flex:1 1 200px; min-width:200px` to `.cmd-input`. Verified live: zero horizontal overflow at 1280px
+      (one row) **and** 1120px (wraps to a second row, height 126px), `scrollWidth === clientWidth` at both.
+- [ ] **Ghost Network full-density audit — the REST still pending.** Run #9 only fixed the command bar. The
+      **detail panel** (right column) at 1280px and 1920px is still un-audited: open it with a *long agent name
+      + many tags* and check the `.vitals` grid (`grid-template-columns:1fr…`, line ~251 in `ghostNexus.css`),
+      the `.dstats` 3-col row, and the `.dctrl` 3-col button grid (`SPAWN/EDIT/DELETE`, `STATUS/PAUSE/REASSIGN`
+      — `REASSIGN` at 11px in a shrunk ~110px button may clip; consider `min-width:0; text-overflow:ellipsis`
+      on `.dbtn`). Use `preview_resize` + `preview_inspect`/`preview_eval` (`scrollWidth` vs `clientWidth`);
+      the in-session `preview_screenshot` has been timing out — rely on inspect/eval.
 - [ ] **AgentDrillDown skills row** — still no per-agent skills (GhostNode carries none). Needs a bridge
       field on the agent node. Low priority.
-- [ ] **Dependency Map polish (optional follow-up to Run #7):** the BFS fetches each node's detail per ring
-      against the live bridge (~1.4–5s/call), so a 28-node chain can take a few seconds to settle — currently a
-      single "tracing dependency chain…" state. Consider a progressive render (draw nodes as each ring resolves)
-      or a per-ring progress count. Also: `workflow_template_id`/`current_step_key` are still always `null` in
-      live data (swarm-only) — if/when swarm tasks appear, add a workflow-step stepper lane. Low priority.
-- [ ] **WorkerLogStream polish (optional follow-up to Run #8):** the tail is a full-buffer replace each poll
-      (the bridge returns the last 8000 bytes, not a byte-offset delta), so on a very chatty log the `<pre>`
-      re-renders the whole tail every 2s. Fine at current volumes; if it ever flickers, diff against the prior
-      tail and only append the new suffix. Also consider auto-stopping the stream when the task's status leaves
-      `running` (currently the operator pauses manually). Low priority.
+- [ ] **Dependency Map polish (optional follow-up to Run #7):** progressive per-ring render (the BFS fetches
+      each node's detail per ring at ~1.4–5s/call, so a 28-node chain settles slowly behind one spinner). Also
+      add a workflow-step stepper lane if/when swarm tasks (`workflow_template_id`) appear in live data. Low pri.
+- [ ] **WorkerLogStream polish (optional follow-up to Run #8):** diff the 8000-byte tail and append only the new
+      suffix instead of replacing the whole `<pre>` each 2s poll; auto-stop the stream when the task leaves
+      `running`. Low priority.
 
-### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map; #8 Live Worker-Log Tail)
+### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map; #8 Live Worker-Log Tail; #9 Completed-Task Desktop Notifications)
 - [ ] **Pick ONE (none of the above):**
-  1. **Completed-task desktop notifications** — watch `useTaskStore.hermesTasks` for `running/ready → done|failed`
-     transitions and fire an Electron `new Notification(...)` (guard for the renderer/`window.Notification`),
-     with a global enable toggle persisted to `localStorage`. Closes the "did my task finish?" loop. (Pair well
-     with the new live worker-log tail: notify, then jump into the drawer to read the final log.)
-  2. **Keyboard-shortcuts cheat-sheet `?` overlay** — a global `?` (Shift+/) modal listing every shortcut now
-     live (⌘K palette, ⌘F task search, DIAG, Esc-to-close conventions, ⊞ MAP, ▶ LIVE). Pure static + the nav
-     list; no bridge. Good low-risk discoverability win.
-  3. **Saved task filter/view presets (Operations)** — let the operator save the current status+assignee+search
+  1. **Keyboard-shortcuts cheat-sheet `?` overlay** — a global `?` (Shift+/) modal listing every shortcut now
+     live (⌘K palette, ⌘F task search, DIAG, 🔔 NOTIFY, Esc-to-close conventions, ⊞ MAP, ▶ LIVE). Pure static +
+     the nav list; no bridge. Good low-risk discoverability win — now that the topbar has grown several
+     affordances (Run #9 added the bell), a one-stop legend earns its keep.
+  2. **Saved task filter/view presets (Operations)** — let the operator save the current status+assignee+search
      filter combo as a named chip (persisted to `localStorage`), one click to re-apply. Pure client; no bridge.
+  3. **Notification history / activity toast log** — a small in-app dropdown off the new 🔔 bell listing the
+     last N task-complete/fail events fired this session (from `useNotifyStore`), so the operator can review
+     what finished even if they missed the OS toast. Extends Run #9; pure client.
+  4. **Agent idle/stall watchdog** — flag agents that are `active` but have had `tasks_running > 0` with no
+     activity event for >N minutes (cross-reference `useGhostStore` + `useActivityStore`). Surfaces stuck
+     workers. Pure client aggregation; no bridge.
 
 ---
 
 ## Run History (newest first — append, never overwrite)
+
+### 2026-06-10 — Run #9 (branch `auto/evolve-task-notifications`)
+
+**Inherited-state note.** Opened on the Run #8 branch tree (`auto/evolve-log-stream`), still carrying the
+concurrent Hermes self-audit's uncommitted churn (`.hermes/audit-*`, `scripts/audit-and-improve.py`,
+`BRAND_STRATEGY.md`). Left all of it untouched — not this run's deliverable; branched
+`auto/evolve-task-notifications` from HEAD and committed only my own files.
+
+**Tab audit findings (sanity pass).** Re-enumerated `src/lib/nav.ts` (**8 modules**, num 00–07), `App.tsx`,
+and the Layout sidebar. Consolidation remains complete — unchanged since Run #6. All redirects still resolve
+(`/command`,`/cyberpunk`,`/agent-hub` → `/network`; the 4 Design Lab legacy paths → `/design-lab?tab=…`;
+`/signal-intelligence` → `/war-room`; `*` → `/network`). No dead nav entry crept back. **No consolidation
+needed this run** — UI fix + new feature only, per the standing guidance.
+
+**UI fix — Ghost Network command bar no longer overflows on narrow widths.** The Nexus `.commandbar`
+(`src/pages/ghostNexus.css`) packed the session-switcher + `ARCAN ▷` prefix + the directive input + 3
+quick-chips + `Execute` into a single **nowrap** flex row. With the 286px rail and 430px detail panel both on
+screen, the centre column gets narrow (especially at the existing ≤1320px breakpoint) and that row used to
+clip horizontally — the exact "command bar overflow" risk Run #7/#8 flagged in the pending density audit.
+Fix: `flex-wrap:wrap` on `.commandbar` and `.chips`, plus `flex:1 1 200px; min-width:200px` on `.cmd-input`
+so the input keeps a usable width and the chips/Execute wrap to a second line instead of overflowing.
+**Verified live** on `/network`: at 1280px the bar stays one row with `scrollWidth === clientWidth` (no
+overflow); at 1120px it wraps to a second row (height 126px) still with **zero horizontal overflow**. (The
+detail panel's `.vitals`/`.dstats`/`.dctrl` grids remain un-audited — re-queued for the next run.)
+
+**New feature — Completed-Task Desktop Notifications (🔔 / 🔕).** Closes the "did my task finish?" loop and
+pairs with Run #8's live worker-log tail. **Store:** `src/stores/useNotifyStore.ts` — owns the on/off
+preference (persisted to `localStorage` `mc-notify-enabled`, re-validated against `Notification.permission`
+on load so a stale "on" can't show an un-fireable bell), the current permission, a session `sentCount`, and a
+`toggle()` that requests OS permission when enabling. **Watcher:** `src/components/TaskNotifier.tsx` (renders
+`null`, mounted once in `Layout.tsx`) keeps a `useRef` map of `taskId → status`, diffs each
+`useTaskStore.hermesTasks` change, and fires an OS `Notification` only on a genuine **non-terminal → terminal**
+(`done|completed|failed`) transition. It **seeds silently on the first poll** (no startup burst for tasks that
+were already done), de-dupes per task via the notification `tag`, and degrades quietly if the `Notification`
+constructor throws. Clicking a notification calls `useTaskFocusStore.focus(id)` + `navigate('/operations')`
+(jumps straight to the finished task — which then shows its final worker-log tail). **Topbar control:** a
+**🔔 NOTIFY / 🔕 MUTED** bell button in `Layout.tsx` (beside DIAG) toggles the store, turns coral/accent when
+on, and shows blocked/unsupported state in its tooltip. **No new bridge endpoint** — pure client diff of the
+already-polled task store. **How to access:** click the **🔕 → 🔔** bell in the top bar (grant the OS prompt);
+finish/fail any task and an OS toast fires — click it to land on that task in Operations. **Verified live:**
+bell renders (`🔕 MUTED` in the preview sandbox, where `Notification.permission` is OS-denied — tooltip
+correctly explains), toggle wired, `TaskNotifier` mounts with no console errors; the seed-then-diff logic and
+permission guards keep it inert until a real transition with granted permission.
+
+**Verify.** `npm run build` ✓ (tsc + vite, **120 modules**, up from 118 — `useNotifyStore.ts` +
+`TaskNotifier.tsx`), `npm run lint` ✓ (**0 errors, 0 warnings**), and the live Vite preview pass above on
+`/network` (command-bar wrap at 1280/1120px + bell render, no console errors).
 
 ### 2026-06-09 — Run #8 (branch `auto/evolve-log-stream`)
 
