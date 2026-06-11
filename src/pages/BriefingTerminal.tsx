@@ -204,8 +204,12 @@ export default function BriefingTerminal() {
 
   return (
     <div className="h-full grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-2 p-2 relative overflow-y-auto">
+      {/* shrink-0 on each stacked panel: they keep their natural/min height and
+          the page scrolls (overflow-y-auto above), instead of flexbox squeezing
+          all three into the viewport — which clipped their content once Panel
+          became overflow-hidden. */}
       <div className="flex flex-col gap-2 min-h-0">
-        <Panel label="BRIEFING TERMINAL · /tty7" right={<span className="text-[#f64e6e]">● RECORDING</span>}>
+        <Panel label="BRIEFING TERMINAL · /tty7" className="shrink-0 min-h-[300px] max-h-[55vh]" right={<span className="text-[#f64e6e]">● RECORDING</span>}>
           <div className="h-full bg-[#03030a] p-4 font-mono text-[11px] overflow-auto relative" style={{ fontFamily: '"JetBrains Mono",ui-monospace,monospace' }}>
             {loading && !briefing && (
               <div className="text-[#545454]">{'>'} syncing with Hermes bridge…</div>
@@ -228,8 +232,8 @@ export default function BriefingTerminal() {
           </div>
         </Panel>
 
-        <AiDigestPanel />
-        <SentinelFeed />
+        <div className="shrink-0"><AiDigestPanel /></div>
+        <div className="shrink-0"><SentinelFeed /></div>
       </div>
 
       <Panel label="TODAY'S DIRECTIVES" className="min-h-0">
