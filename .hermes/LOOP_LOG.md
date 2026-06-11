@@ -16,7 +16,7 @@ do not push/PR. Keep LIVE Hermes-backed functionality intact; only consolidate r
 
 ---
 
-## Current State (8 tabs — Command + Agent Hub folded into Ghost Network in Run #6; topbar bell is now a Notification Center in Run #10; War Room gained a per-hour Throughput histogram in Run #11; topbar gained a `?` keyboard-shortcuts cheat-sheet in Run #12; the Operations cron modal gained live next-fire countdowns in Run #13 + a Next-24h Agenda timeline in Run #14)
+## Current State (8 tabs — Command + Agent Hub folded into Ghost Network in Run #6; topbar bell is now a Notification Center in Run #10; War Room gained a per-hour Throughput histogram in Run #11 **+ a Backlog Burn-down / queue-health view in Run #15** (the TASK panel now cycles STATUS·FLOW·BURN); topbar gained a `?` keyboard-shortcuts cheat-sheet in Run #12; the Operations cron modal gained live next-fire countdowns in Run #13 + a Next-24h Agenda timeline in Run #14)
 
 Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 `Layout.tsx` (sidebar) and `CommandPalette.tsx`. To add/remove/reorder a tab, edit `nav.ts`.
@@ -24,7 +24,7 @@ Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 | # | Path | Page | Data | Notes |
 |---|------|------|------|-------|
 | 00 | `/network`     | Ghost Network              | LIVE | **Merged primary console.** NEXUS Orchestration Deck (orbital mesh + roster) **plus** the agent Registry CRUD (create/edit/delete/spawn via the new `useAgentCrud()` hook + `+ Agent` button) **plus** the ARCAN orchestrator command bar (directives, status, reassign) wired to the shared chat session. Detail panel `▦ INSPECT` → Agent Drill-Down. Absorbed the old Hermes Command + Agent Hub (Run #6). |
-| 01 | `/war-room`    | War Room                   | LIVE | Metrics gauges + **TASK STATUS ↔ FLOW toggle** (status breakdown **or** the per-hour throughput histogram, Run #11) + **AGENT LOAD ↔ PERF toggle** (performance leaderboard, Run #6 — **now click-to-sort columns**, Run #8) + **TASKS/SIGNAL feed toggle**. |
+| 01 | `/war-room`    | War Room                   | LIVE | Metrics gauges + **TASK STATUS ↔ FLOW ↔ BURN toggle** (status breakdown **or** the per-hour throughput histogram, Run #11 **or** the Backlog Burn-down / queue-health view, Run #15) + **AGENT LOAD ↔ PERF toggle** (performance leaderboard, Run #6 — **now click-to-sort columns**, Run #8) + **TASKS/SIGNAL feed toggle** (now scroll-back-able, Run #15). |
 | 02 | `/operations`  | Operations Center          | LIVE | Full kanban CRUD + cron list/run/create (**live next-fire countdowns + soonest-first sort**, Run #13; **+ a Next-24h Agenda timeline** plotting every upcoming fire per job, Run #14) + task decompose + **TaskDetailDrawer** (comments/events/runs/notify/boards/diagnostics + **⊞ Dependency Map**, Run #7 + **live-tail WORKER LOG**, Run #8). Single cron home. Receives ⌘F Task Search focus. |
 | 03 | `/chat`        | Ghost Comms (ChatTerminal) | LIVE | ARCAN multi-session orchestrator chat (persistent SQLite sessions, attachments, voice). |
 | 04 | `/factory`     | Content Factory            | LIVE | `useContentStore` → `/api/content/pipeline`. |
@@ -216,6 +216,14 @@ all survive in the Ghost Network detail panel).
       tooltip to the Source span (mirroring the proven Name-cell pattern). Build/lint clean; the fix mirrors an
       adjacent already-verified cell (couldn't render live rows — the bridge `/api/hermes/leads` poll was
       offline this run, no leads to display).
+- [x] ~~Shared `LogTail` clipped history with no scroll-back~~ — DONE in Run #15. The shared `LogTail`
+      (`src/components/cyberpunk/ui.tsx`, used by both War Room bottom feeds — TASK ACTIVITY + AGENT SIGNAL) was
+      `overflow-hidden` with an auto-scroll-to-bottom, so any line above the fold (e.g. 40 signal lines in a
+      130px box) was clipped with **no way to read it back**. Switched to `overflow-y-auto overflow-x-hidden` and
+      gated the auto-follow on a `pinnedRef` (only re-pins to the bottom when the reader is already within 24px of
+      it), so a poll of fresh lines no longer yanks someone who scrolled up — mirroring the Run #8 WorkerLogStream
+      tail pattern. **High-leverage** (every `LogTail` consumer inherits it). **Verified live** on `/war-room`:
+      the feed container computes `overflow-y:auto` / `overflow-x:hidden`.
 - [ ] **AgentDrillDown skills row** — still no per-agent skills (GhostNode carries none). Needs a bridge
       field on the agent node. Low priority.
 - [ ] **Dependency Map polish (optional follow-up to Run #7):** progressive per-ring render (the BFS fetches
@@ -225,17 +233,20 @@ all survive in the Ghost Network detail panel).
       suffix instead of replacing the whole `<pre>` each 2s poll; auto-stop the stream when the task leaves
       `running`. Low priority.
 
-### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map; #8 Live Worker-Log Tail; #9 Completed-Task Desktop Notifications; #10 Notification Center dropdown; #11 Task Throughput Histogram; #12 Keyboard-Shortcuts Cheat-Sheet; #13 Cron Next-Fire Countdown; #14 Cron Next-24h Agenda Timeline)
+### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map; #8 Live Worker-Log Tail; #9 Completed-Task Desktop Notifications; #10 Notification Center dropdown; #11 Task Throughput Histogram; #12 Keyboard-Shortcuts Cheat-Sheet; #13 Cron Next-Fire Countdown; #14 Cron Next-24h Agenda Timeline; #15 Backlog Burn-down / Queue-Health view)
 - [ ] **Pick ONE (none of the above):**
-  1. **Saved task filter/view presets (Operations)** — let the operator save the current status+assignee+search
-     filter combo as a named chip (persisted to `localStorage`), one click to re-apply. Pure client; no bridge.
+  1. **Saved task filter/view presets (Operations)** — let the operator save the current assignee (+ any future
+     filter) combo as a named chip (persisted to `localStorage`), one click to re-apply. Pure client; no bridge.
+     (NOTE: Operations currently only has an assignee dropdown — pair this with adding a status/column filter so
+     a preset is worth saving.)
   2. **Agent idle/stall watchdog** — flag agents that are `active` but have had `tasks_running > 0` with no
      activity event for >N minutes (cross-reference `useGhostStore` + `useActivityStore`). Surfaces stuck
      workers. Pure client aggregation; no bridge.
-  3. **Throughput drill-in / SLA view (War Room or Operations)** — build *on top of* Run #11's `computeThroughput`:
-     a small "mean time-to-complete" trend (bucket `completed_at − started_at` per hour) or a stacked
-     created-vs-completed *backlog burn* line (cumulative created − cumulative done) to show whether the queue is
-     keeping up. Reuses the Run #11 lib; pure client. (Distinct from #11, which is raw completions-per-hour.)
+  3. **Cycle-time / lead-time SLA view (War Room or Operations)** — build *on top of* Run #15's `computeBacklogTrend`
+     direction: a "mean/median time-to-complete" distribution (bucket `completed_at − started_at`, or
+     `created_at`→`completed_at` lead time) with a p50/p90 readout, to show *how long* work takes, not just
+     whether the queue grows. Reuses the windowing libs; pure client. (Distinct from #11 raw-completions and #15
+     net-backlog.)
   4. **Bridge log / activity export** — a one-click "copy / download recent activity (JSON or text)" from the War
      Room SIGNAL feed or the Notification Center, for pasting a quick incident report. Pure client over the
      already-polled `useActivityStore` / `useNotifyStore.history`; no bridge.
@@ -248,6 +259,72 @@ all survive in the Ghost Network detail panel).
 ---
 
 ## Run History (newest first — append, never overwrite)
+
+### 2026-06-10 — Run #15 (branch `auto/evolve-backlog-burndown`)
+
+**Inherited-state note.** Opened on the Run #14 branch tree (`auto/evolve-cron-timeline`), still carrying the
+concurrent Hermes self-audit's uncommitted churn (`.hermes/audit-*`, `scripts/audit-and-improve.py`,
+`package.json`, `BRAND_STRATEGY.md`) **plus** audit-touched edits in five of my own source files
+(`CommandPalette.tsx`, `ChatTerminal.tsx`, and the three stores). Left all of that untouched (not this run's
+deliverable). **One new wrinkle this run:** the audit had also dropped two **untracked, broken Redux-tutorial
+scaffold dirs** — `src/app/` (`store.ts`/`hooks.ts`/`Provider.tsx`) and `src/features/counter/counterSlice.ts`
+— that import `react-redux`/`@reduxjs/toolkit` (not installed) and **broke `tsc -b`** (the build was green at 126
+modules when Run #14 closed). They are orphaned boilerplate: `main.tsx` renders `<App/>` with no Redux Provider
+and **nothing in the real app imports them** (only `counterSlice` imports its sibling `app/store`). Removed both
+untracked dirs to **restore Run #14's known-good green build** (no tracked code or Hermes functionality touched);
+documented here as inherited-state cleanup. Branched `auto/evolve-backlog-burndown` from HEAD and committed only
+my own files.
+
+**Tab audit findings (sanity pass).** Re-enumerated `src/lib/nav.ts` (**8 modules**, num 00–07), `App.tsx`, and
+the Layout sidebar. Consolidation remains complete — unchanged since Run #6. All redirects still resolve
+(`/command`,`/cyberpunk`,`/agent-hub` → `/network`; the 4 Design Lab legacy paths → `/design-lab?tab=…`;
+`/signal-intelligence` → `/war-room`; `*` → `/network`). No dead nav entry crept back. **No consolidation
+needed this run** — UI fix + new feature only, per the standing guidance.
+
+**UI fix — shared `LogTail` no longer clips its history (`src/components/cyberpunk/ui.tsx`).** The reusable
+`LogTail` (used by **both** War Room bottom feeds: TASK ACTIVITY · hermes kanban and AGENT SIGNAL · hermes
+activity) was `overflow-hidden` with a blind `scrollTop = scrollHeight` on every update — so with ~40 signal
+lines in a 130px box, every line above the fold was **clipped and unreachable**. Switched the container to
+`overflow-y-auto overflow-x-hidden` and gated the auto-follow on a `pinnedRef` that re-pins to the bottom only
+when the reader is already within 24px of it (an `onScroll` handler updates the flag), so polling fresh lines no
+longer yanks someone who scrolled up to read earlier output — the same pin-to-bottom discipline Run #8 used for
+the WorkerLogStream tail. **High-leverage** (every `LogTail` consumer inherits it). **Verified live** on
+`/war-room`: the feed container computes `overflow-y:auto` / `overflow-x:hidden`.
+
+**New feature — Backlog Burn-down / Queue-Health view (War Room, TASK panel `BURN` mode).** Run #11 answered
+"how many tasks finished each hour" (raw histogram); this answers the operational question one level up — *is the
+queue keeping up, or falling behind?* **Lib** (`src/lib/backlogTrend.ts`): new pure `computeBacklogTrend(tasks,
+nowMs, hours=24)` folds the already-polled queue into UTC-hour-aligned trailing buckets and **accumulates**
+arrivals (`created_at`) and completions (`completed_at` on done/complete/completed) into two cumulative series;
+the gap between them is the net backlog the window added or burned down. Also returns `openBacklog` — the live,
+**window-independent** count of still-open work (everything not done/failed/cancelled/archived) — plus `netDelta`
+(created − done over the window) and a `trend` (growing / shrinking / flat). `nowMs` is passed in (never
+`Date.now()` in render), mirroring `computeThroughput`/`agentMetrics`. **Component**
+(`src/components/BacklogBurndown.tsx`): a stretched SVG (`viewBox 0 0 300 100`, `preserveAspectRatio="none"` +
+`vector-effect="non-scaling-stroke"` so lines stay crisp) drawing the two cumulative polylines (sky CREATED,
+emerald DONE) over 0/50/100% gridlines, with the area between them shaded coral when arrivals lead / emerald when
+completions lead; a per-bucket invisible hover overlay (`02h:00 — created N · done N · net ±N`) since SVG
+hit-testing under non-uniform scale is awkward; a headline OPEN / NET Δ / trend row; a 12H/24H/48H window
+selector; and a CREATED Σ / DONE Σ legend. **Wiring** (`src/pages/WarRoom.tsx`): the TASK STATUS panel toggle
+went from STATUS↔FLOW to **STATUS·FLOW·BURN** (third `taskView='burn'` mode), reusing the panel's existing
+0ms-seeded `nowMs` clock; the LIVE/OFFLINE dot moved to `hidden md:inline` + the toggle gap tightened so three
+buttons + the dot fit the `lg:grid-cols-2` half-column without overflow. Also updated the `?` cheat-sheet
+(`ShortcutsHelp.tsx`) War Room group to STATUS·FLOW·BURN. **No new bridge endpoint** — pure client fold of the
+already-polled task store. **How to access:** War Room → TASK panel header → click **BURN** (then **12H/24H/48H**).
+**Verified live against real Hermes data** (bridge online this run): the panel renders `BACKLOG BURN-DOWN · queue
+health` with both cumulative polylines (`#38bdf8` + `#10b981`), a real **`OPEN 15`** (15 live non-closed tasks),
+`NET 0 / ■ FLAT` and `CREATED Σ 0 / DONE Σ 0` over the 24h window (consistent — those 15 were created >24h ago,
+none completed in-window); the window selector swaps the chart from **24 → 48 hover ticks**; hover tooltips read
+`02h:00 — created 0 · done 0 · net +0`; **no console errors**; and the busier STATUS·FLOW·BURN header reports
+`scrollWidth === clientWidth` (no overflow) at 1040 / 980 / 1280px. Also unit-checked `computeBacklogTrend` via a
+standalone CommonJS transpile (**13/13** assertions: cumulative monotonicity, `totalCreated/totalDone/netDelta`,
+window-independent `openBacklog`, `trend`, and the `nowMs=0` / empty-task inert branches).
+
+**Verify.** `npm run build` ✓ (tsc + vite, **128 modules**, up from 126 — `backlogTrend.ts` + `BacklogBurndown.tsx`),
+`npm run lint` ✓ (**0 errors, 0 warnings**), the standalone `computeBacklogTrend` unit-check (13 cases) ✓, and the
+live Vite preview pass above on `/war-room` (BURN view + window switch + header-overflow + LogTail computed style),
+no console errors. (Inherited-state cleanup restored the green build by removing the audit's orphaned untracked
+Redux scaffold; no tracked file touched.)
 
 ### 2026-06-10 — Run #14 (branch `auto/evolve-cron-timeline`)
 
