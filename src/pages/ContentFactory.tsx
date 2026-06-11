@@ -140,10 +140,11 @@ export default function ContentFactory() {
           </Panel>
         </div>
 
-        {/* Campaigns — shrink-0 so tall content grows the page (which scrolls)
-            instead of flexbox squeezing the panel into clipping. */}
+        {/* Campaigns — capped height with internal scrolling: all content stays
+            reachable without the page growing 1000px+ tall. */}
         <Panel
-          className="shrink-0"
+          className="shrink-0 max-h-[58vh]"
+          bodyClass="overflow-y-auto"
           label="ACTIVE CAMPAIGNS"
           right={
             <div className="flex items-center gap-2">
@@ -194,8 +195,8 @@ export default function ContentFactory() {
           )}
         </Panel>
 
-        {/* Draft Queue */}
-        <Panel label="DRAFT QUEUE" className="shrink-0">
+        {/* Draft Queue — capped + self-scrolling, same as campaigns */}
+        <Panel label="DRAFT QUEUE" className="shrink-0 max-h-[42vh]" bodyClass="overflow-y-auto">
           {drafts.length === 0 ? (
             <div className="text-[#545454] font-mono text-xs">No drafts in queue.</div>
           ) : (
