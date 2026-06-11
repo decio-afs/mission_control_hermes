@@ -62,16 +62,19 @@ function SentinelFeed() {
                   className="group block border border-white/[0.06] bg-[#0a0a12] hover:border-[#f64e6e]/30 hover:bg-[#f64e6e]/[0.03] transition-colors p-2"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <span className="text-[11px] text-[#b8b8b8] leading-tight group-hover:text-white transition-colors">
+                    {/* min-w-0 + break-words lets an arbitrary RSS title wrap inside
+                        its flex cell instead of overflowing and shoving the score
+                        off the right edge. */}
+                    <span className="min-w-0 break-words text-[11px] text-[#b8b8b8] leading-tight group-hover:text-white transition-colors">
                       {story.title}
                     </span>
                     <span className="shrink-0 text-[10px] font-mono text-[#f64e6e] tabular-nums">
                       {story.score}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[9px] font-mono uppercase tracking-wider text-[#545454]">{story.source}</span>
-                    <span className="text-[9px] font-mono text-[#363636]">{new URL(story.url).hostname.replace(/^www\./, '')}</span>
+                  <div className="flex items-center gap-2 mt-1 min-w-0">
+                    <span className="shrink-0 text-[9px] font-mono uppercase tracking-wider text-[#545454]">{story.source}</span>
+                    <span className="min-w-0 truncate text-[9px] font-mono text-[#363636]">{new URL(story.url).hostname.replace(/^www\./, '')}</span>
                   </div>
                 </a>
               ))}
@@ -160,7 +163,7 @@ export default function BriefingTerminal() {
                 <Pill tone={sevTone[b.sev]}>{b.sev}</Pill>
                 <span className="text-[10px] font-mono text-[#545454]">{b.t}</span>
               </div>
-              <div className="text-[11px] text-[#b8b8b8] leading-tight">{b.msg}</div>
+              <div className="text-[11px] text-[#b8b8b8] leading-tight break-words">{b.msg}</div>
             </div>
           ))}
           {!briefing && (
