@@ -16,7 +16,7 @@ do not push/PR. Keep LIVE Hermes-backed functionality intact; only consolidate r
 
 ---
 
-## Current State (8 tabs — Command + Agent Hub folded into Ghost Network in Run #6; topbar bell is now a Notification Center in Run #10; War Room gained a per-hour Throughput histogram in Run #11 **+ a Backlog Burn-down / queue-health view in Run #15 + a Cycle-Time / Lead-Time SLA distribution in Run #16** (the TASK panel now cycles **STATUS·FLOW·BURN·SLA**); topbar gained a `?` keyboard-shortcuts cheat-sheet in Run #12; the Operations cron modal gained live next-fire countdowns in Run #13 + a Next-24h Agenda timeline in Run #14)
+## Current State (8 tabs — Command + Agent Hub folded into Ghost Network in Run #6; topbar bell is now a Notification Center in Run #10; War Room gained a per-hour Throughput histogram in Run #11 **+ a Backlog Burn-down / queue-health view in Run #15 + a Cycle-Time / Lead-Time SLA distribution in Run #16 + an Aging / Stale-WIP heatmap in Run #17** (the TASK panel now cycles **STATUS·FLOW·BURN·SLA·AGE**); topbar gained a `?` keyboard-shortcuts cheat-sheet in Run #12; the Operations cron modal gained live next-fire countdowns in Run #13 + a Next-24h Agenda timeline in Run #14)
 
 Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 `Layout.tsx` (sidebar) and `CommandPalette.tsx`. To add/remove/reorder a tab, edit `nav.ts`.
@@ -24,7 +24,7 @@ Nav lives in **`src/lib/nav.ts`** (`MODULES`) — single source consumed by both
 | # | Path | Page | Data | Notes |
 |---|------|------|------|-------|
 | 00 | `/network`     | Ghost Network              | LIVE | **Merged primary console.** NEXUS Orchestration Deck (orbital mesh + roster) **plus** the agent Registry CRUD (create/edit/delete/spawn via the new `useAgentCrud()` hook + `+ Agent` button) **plus** the ARCAN orchestrator command bar (directives, status, reassign) wired to the shared chat session. Detail panel `▦ INSPECT` → Agent Drill-Down. Absorbed the old Hermes Command + Agent Hub (Run #6). |
-| 01 | `/war-room`    | War Room                   | LIVE | Metrics gauges + **TASK STATUS ↔ FLOW ↔ BURN ↔ SLA toggle** (status breakdown **or** the per-hour throughput histogram, Run #11 **or** the Backlog Burn-down / queue-health view, Run #15 **or** the Cycle-Time / Lead-Time SLA distribution with p50/p90/p95 + LEAD/CYCLE toggle, Run #16) + **AGENT LOAD ↔ PERF toggle** (performance leaderboard, Run #6 — **now click-to-sort columns**, Run #8) + **TASKS/SIGNAL feed toggle** (now scroll-back-able, Run #15). |
+| 01 | `/war-room`    | War Room                   | LIVE | Metrics gauges + **TASK STATUS ↔ FLOW ↔ BURN ↔ SLA ↔ AGE toggle** (status breakdown **or** the per-hour throughput histogram, Run #11 **or** the Backlog Burn-down / queue-health view, Run #15 **or** the Cycle-Time / Lead-Time SLA distribution with p50/p90/p95 + LEAD/CYCLE toggle, Run #16 **or** the Aging / Stale-WIP heatmap with click-to-open oldest offenders, Run #17) + **AGENT LOAD ↔ PERF toggle** (performance leaderboard, Run #6 — **now click-to-sort columns**, Run #8) + **TASKS/SIGNAL feed toggle** (now scroll-back-able, Run #15). |
 | 02 | `/operations`  | Operations Center          | LIVE | Full kanban CRUD + cron list/run/create (**live next-fire countdowns + soonest-first sort**, Run #13; **+ a Next-24h Agenda timeline** plotting every upcoming fire per job, Run #14) + task decompose + **TaskDetailDrawer** (comments/events/runs/notify/boards/diagnostics + **⊞ Dependency Map**, Run #7 + **live-tail WORKER LOG**, Run #8). Single cron home. Receives ⌘F Task Search focus. |
 | 03 | `/chat`        | Ghost Comms (ChatTerminal) | LIVE | ARCAN multi-session orchestrator chat (persistent SQLite sessions, attachments, voice). |
 | 04 | `/factory`     | Content Factory            | LIVE | `useContentStore` → `/api/content/pipeline`. |
@@ -232,8 +232,12 @@ all survive in the Ghost Network detail panel).
       `min-w-0` + `shrink-0`/`truncate` to the hostname row, and `break-words` to the fixed-width (340px)
       directives-column message. **Verified live** on `/briefing` against real data (23 stories, 0 overflowing);
       injecting a 130-char unbroken token into a title kept the card non-overflowing (`scrollWidth ≤ clientWidth`).
+- [x] ~~AgentDrillDown assigned-task title overflow~~ — DONE in Run #17. The assigned-task card title
+      (`src/components/AgentDrillDown.tsx`) rendered arbitrary Hermes kanban titles with no wrap guard, so a long
+      unbroken token (URL/path/hash) overflowed the fixed `max-w-[460px]` slide-over. Added `break-words min-w-0`.
 - [ ] **AgentDrillDown skills row** — still no per-agent skills (GhostNode carries none). Needs a bridge
-      field on the agent node. Low priority.
+      field on the agent node. Low priority. (NOTE: `HermesTask` carries a `skills: string[]` field; the *task*
+      drawer could surface required skills without a bridge change, even if the *agent* node can't.)
 - [ ] **Dependency Map polish (optional follow-up to Run #7):** progressive per-ring render (the BFS fetches
       each node's detail per ring at ~1.4–5s/call, so a 28-node chain settles slowly behind one spinner). Also
       add a workflow-step stepper lane if/when swarm tasks (`workflow_template_id`) appear in live data. Low pri.
@@ -241,7 +245,7 @@ all survive in the Ghost Network detail panel).
       suffix instead of replacing the whole `<pre>` each 2s poll; auto-stop the stream when the task leaves
       `running`. Low priority.
 
-### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map; #8 Live Worker-Log Tail; #9 Completed-Task Desktop Notifications; #10 Notification Center dropdown; #11 Task Throughput Histogram; #12 Keyboard-Shortcuts Cheat-Sheet; #13 Cron Next-Fire Countdown; #14 Cron Next-24h Agenda Timeline; #15 Backlog Burn-down / Queue-Health view; #16 Cycle-Time / Lead-Time SLA distribution)
+### Next Feature (must differ from Run History — #1 Command Palette; #2 Cron Creation UI; #3 Bridge Diagnostics; #4 Agent Drill-Down; #5 Global Task Search ⌘F; #6 Agent Performance Leaderboard; #7 Task Dependency Map; #8 Live Worker-Log Tail; #9 Completed-Task Desktop Notifications; #10 Notification Center dropdown; #11 Task Throughput Histogram; #12 Keyboard-Shortcuts Cheat-Sheet; #13 Cron Next-Fire Countdown; #14 Cron Next-24h Agenda Timeline; #15 Backlog Burn-down / Queue-Health view; #16 Cycle-Time / Lead-Time SLA distribution; #17 Aging / Stale-WIP heatmap)
 - [ ] **Pick ONE (none of the above):**
   1. **Saved task filter/view presets (Operations)** — let the operator save the current assignee (+ any future
      filter) combo as a named chip (persisted to `localStorage`), one click to re-apply. Pure client; no bridge.
@@ -258,18 +262,82 @@ all survive in the Ghost Network detail panel).
      `/api/hermes/cron` payload (or a `hermes cron log`-style call) already carries `last_run`/history; if so it's
      a pure client render, otherwise add a small read-only bridge endpoint. (Distinct from #13/#14, which only
      look ahead.)
-  5. **Aging / stale-WIP heatmap (War Room or Operations)** — Run #16 measures *finished* work's duration;
-     the dual is *unfinished* work's age. Bucket still-open tasks (not done/failed/cancelled/archived) by
-     `now − (started_at ?? created_at)` into the same human bands (`<1h`/`1–4h`/…/`>3d`) and flag the oldest
-     N as an "aging WIP" list — surfaces tasks silently rotting in the queue. Pure client; reuses the
-     `cycleTime.ts` bucket grammar. (Distinct from #16 completed-duration and #15 net-backlog count.)
-  6. **SLA-breach badge on the leaderboard / drill-down** — once #16 establishes the p90 baseline, mark agents or
-     in-flight tasks whose current cycle time already exceeds the rolling p90 as "over SLA". Pure client; layers
-     on Run #16 + Run #6.
+  5. **SLA-breach badge on the leaderboard / drill-down** — Run #16 establishes the p90 baseline and Run #17 the
+     open-task age; layer them: mark in-flight tasks (or agents) whose *current* age already exceeds the rolling
+     p90 cycle time as "over SLA". `computeAgingWip` already produces per-task `ageSec` and `computeCycleStats`
+     the p90 threshold — this is a join + a badge on the AGE oldest-list rows and/or the AgentPerformance
+     leaderboard. Pure client; layers on Runs #16 + #17 + #6. **Strongest next candidate** (closes the loop the
+     last two runs opened: finished-duration → open-age → over-SLA flag).
+  6. **Aging-WIP → Operations deep-link polish** — Run #17's oldest-open rows route to `/operations` + `focus(id)`,
+     but Operations only scrolls/highlights if that task is on the currently-visible board/filter. Verify the
+     focus actually lands the task (open its drawer or auto-clear filters) when arriving from War Room; if not,
+     have `useTaskFocusStore` optionally request the drawer-open, not just scroll. Small UX-correctness follow-up.
+  7. **Throughput / aging trend sparkline on the gauges row** — the six top gauges are all point-in-time; add a
+     tiny per-gauge sparkline of its own recent history (e.g. QUEUE DEPTH or BUSY AGENTS over the last N polls)
+     using the existing `Sparkline` primitive + a small rolling client buffer. Pure client; no bridge.
 
 ---
 
 ## Run History (newest first — append, never overwrite)
+
+### 2026-06-11 — Run #17 (branch `auto/evolve-aging-wip`)
+
+**Inherited-state note.** Opened on the Run #16 branch tree (`auto/evolve-cycle-time-sla`), still carrying the
+concurrent Hermes self-audit's uncommitted churn (`.hermes/audit-*`, `scripts/audit-and-improve.py`,
+`package.json`, `BRAND_STRATEGY.md`) **plus** audit-touched edits in five of my own source files
+(`CommandPalette.tsx`, `ChatTerminal.tsx`, and the three stores `useNotifyStore.ts` / `useTaskFocusStore.ts` /
+`useAgentDrilldownStore.ts`). Confirmed the baseline builds green (**130 modules**) **with** that churn present,
+left all of it untouched (not this run's deliverable — same call as Runs #10–#16), branched
+`auto/evolve-aging-wip` from HEAD, and committed **only my own files**. (No orphaned Redux scaffold this run —
+Run #15's cleanup still holds.)
+
+**Tab audit findings (sanity pass).** Re-enumerated `src/lib/nav.ts` (**8 modules**, num 00–07), `App.tsx`, and
+the Layout sidebar. Consolidation remains complete — unchanged since Run #6. All redirects still resolve
+(`/command`,`/cyberpunk`,`/agent-hub` → `/network`; the 4 Design Lab legacy paths → `/design-lab?tab=…`;
+`/signal-intelligence` → `/war-room`; `*` → `/network`). No dead nav entry crept back. **No consolidation
+needed this run** — UI fix + new feature only, per the standing guidance.
+
+**UI fix — Agent Drill-Down assigned-task title no longer overflows (`src/components/AgentDrillDown.tsx`).** The
+ASSIGNED TASKS card title (`<div class="text-[11px] text-white leading-snug">{t.title}</div>`) rendered
+**arbitrary Hermes kanban titles** with no wrap guard, so a long unbroken token (a URL / file path / hash) bled
+past the fixed `max-w-[460px]` slide-over and forced a horizontal scrollbar — the same unbounded-external-content
+class Run #16 fixed in the Briefing feed. Added `break-words min-w-0` to the title `<div>` so a long token wraps
+within the card. (Sibling rows were already safe: the `t.id` line is `shrink-0`, the activity action `truncate`.)
+
+**New feature — Aging / Stale-WIP heatmap (War Room, TASK panel `AGE` mode).** The dual of Run #16: where SLA
+measures how long *finished* work took, this surfaces how long *open* work has been waiting — tasks silently
+rotting in the queue. **Lib** (`src/lib/agingWip.ts`): pure `computeAgingWip(tasks, nowMs, topN=8)` selects every
+still-open task (status not in the terminal set `done|complete|completed|failed|cancelled|canceled|archived|error`
+— mirroring `computeBacklogTrend`'s open-set), ages each by `now − (started_at ?? created_at)` clamped ≥0, and
+buckets it into the **same human bands as the cycle-time histogram** (`BUCKET_BOUNDS` is now `export`ed from
+`cycleTime.ts` so there is one grammar, not two). Returns the N oldest offenders (sorted oldest-first), plus
+headline `openCount` / `staleCount` (age ≥ 24h) / `maxAgeSec`. Deliberately **not windowed** — every open task
+counts, since the point is to find the old ones; a no-timestamp open task is counted in `openCount` but not aged.
+`nowMs` passed in (never `Date.now()` in render); supply 0 for an inert result. **Component**
+(`src/components/AgingWip.tsx`): an OPEN / STALE(≥24h) / OLDEST readout + a **hotter-=-older** age histogram (cool
+`<1h` → amber `1–24h` → red `≥1d`, anchored on each bucket's lower bound) + an actionable **OLDEST OPEN** list
+whose rows jump straight to the task in Operations (reuses the Run #5 `useTaskFocusStore.focus(id)` + `navigate`
+plumbing, the same as ⌘F Task Search). Reuses `fmtDuration` from `agentMetrics.ts` (no duplicate formatter).
+**Wiring** (`src/pages/WarRoom.tsx`): the TASK panel toggle went from STATUS·FLOW·BURN·SLA to
+**STATUS·FLOW·BURN·SLA·AGE** (5th `taskView='aging'` mode), reusing the panel's existing 0ms-seeded `nowMs` clock;
+the LIVE/OFFLINE dot moved from `hidden lg:inline` to `hidden xl:inline` so five toggles + the dot still fit the
+`lg:grid-cols-2` half-column without overflow. Also updated the `?` cheat-sheet (`ShortcutsHelp.tsx`) War Room
+group to STATUS·FLOW·BURN·SLA·AGE + an AGE line. **No new bridge endpoint** — pure client fold of the
+already-polled task store. **How to access:** War Room → TASK panel header → click **AGE** (then click any
+oldest-open row to open it in Operations). **Verified live against real Hermes data** (bridge served the task
+queue): the AGE view read **OPEN 15 · STALE 15 ≥24h · OLDEST 2.0d**, all **8 buckets** labelled, **8 oldest-open
+rows** with real titles/assignees/ages (`Identify competitors for DA Agency LLC` · `gridkeeper` · `2.0d`, …);
+clicking an oldest row routed `#/war-room → #/operations` (focus plumbing fires); the busier
+STATUS·FLOW·BURN·SLA·AGE header reported `scrollWidth === clientWidth` (no overflow, 384px) at the narrowest
+**1024px** 2-up width; **no component console errors** (only the documented baseline background bridge-poll
+`Network Error`s). Also unit-checked `computeAgingWip` via a standalone Node harness (**10/10** assertions:
+inert `nowMs=0`, terminal-status exclusion, started-vs-created anchor + bucket placement, `neverStarted` flag,
+`≥24h` stale count, no-timestamp open-but-unaged, oldest-first sort, `topN` cap, `maxAgeSec`).
+
+**Verify.** `npm run build` ✓ (tsc + vite, **132 modules**, up from 130 — `agingWip.ts` + `AgingWip.tsx`),
+`npm run lint` ✓ (**0 errors, 0 warnings**), the standalone `computeAgingWip` unit-check (10 cases) ✓, and the
+live Vite preview pass above on `/war-room` (AGE view + real-data readout + oldest-row click-route + header
+overflow at 1024px), no component console errors.
 
 ### 2026-06-10 — Run #16 (branch `auto/evolve-cycle-time-sla`)
 
