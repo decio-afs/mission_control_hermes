@@ -16,8 +16,10 @@ const DONE = new Set(['done', 'complete', 'completed']);
 const HOUR_SEC = 3600;
 
 // Human-friendly, log-ish duration buckets (seconds). `hi` is the exclusive
-// upper bound; the final bucket is open-ended (`hi: null`).
-const BUCKET_BOUNDS: Array<{ label: string; lo: number; hi: number | null }> = [
+// upper bound; the final bucket is open-ended (`hi: null`). Exported so the
+// aging-WIP heatmap (which buckets *open* work's age into the same bands) reads
+// from one grammar instead of duplicating the boundaries.
+export const BUCKET_BOUNDS: Array<{ label: string; lo: number; hi: number | null }> = [
   { label: '<5m', lo: 0, hi: 5 * 60 },
   { label: '5–15m', lo: 5 * 60, hi: 15 * 60 },
   { label: '15–60m', lo: 15 * 60, hi: 60 * 60 },

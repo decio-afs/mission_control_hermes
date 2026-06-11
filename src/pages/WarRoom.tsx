@@ -9,6 +9,7 @@ import AgentPerformance from '../components/AgentPerformance';
 import TaskThroughput from '../components/TaskThroughput';
 import BacklogBurndown from '../components/BacklogBurndown';
 import CycleTimeSLA from '../components/CycleTimeSLA';
+import AgingWip from '../components/AgingWip';
 import { computeAgentMetrics } from '../lib/agentMetrics';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -35,8 +36,8 @@ export default function WarRoom() {
   // TASK STATUS panel cycles: current status breakdown (bars) → throughput
   // histogram (completions/hour) → backlog burn-down (cumulative created vs done,
   // "is the queue keeping up?") → cycle/lead-time SLA distribution ("how long does
-  // work take?").
-  const [taskView, setTaskView] = useState<'status' | 'flow' | 'burn' | 'sla'>('status');
+  // work take?") → aging WIP heatmap ("how long has open work been waiting?").
+  const [taskView, setTaskView] = useState<'status' | 'flow' | 'burn' | 'sla' | 'aging'>('status');
   // `nowMs` drives the leaderboard's trailing-24h window; set in an effect (never
   // Date.now() during render) so the component stays render-pure for react-hooks.
   const [nowMs, setNowMs] = useState(0);
@@ -187,7 +188,7 @@ export default function WarRoom() {
       {/* Middle: task status + agent load */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 flex-1 min-h-0">
         <Panel
-          label={taskView === 'status' ? 'TASK STATUS BREAKDOWN' : taskView === 'flow' ? 'TASK THROUGHPUT · per hour' : taskView === 'burn' ? 'BACKLOG BURN-DOWN · queue health' : 'CYCLE-TIME SLA · how long work takes'}
+          label={taskView === 'status' ? 'TASK STATUS BREAKDOWN' : taskView === 'flow' ? 'TASK THROUGHPUT · per hour' : taskView === 'burn' ? 'BACKLOG BURN-DOWN · queue health' : taskView === 'sla' ? 'CYCLE-TIME SLA · how long work takes' : 'AGING WIP · how long open work waits'}
           right={(
             <span className="flex items-center gap-1">
               <button
@@ -206,7 +207,11 @@ export default function WarRoom() {
                 onClick={() => setTaskView('sla')}
                 className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${taskView === 'sla' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
               >SLA</button>
-              <span className={`hidden lg:inline ${vitals.hermesOnline ? 'text-emerald-400' : 'text-red-400'}`}>● {vitals.hermesOnline ? 'LIVE' : 'OFFLINE'}</span>
+              <button
+                onClick={() => setTaskView('aging')}
+                className={`px-1.5 py-0.5 border text-[9px] tracking-[0.15em] ${taskView === 'aging' ? 'border-[#f64e6e] text-[#f64e6e]' : 'border-white/10 text-[#545454] hover:border-white/30'}`}
+              >AGE</button>
+              <span className={`hidden xl:inline ${vitals.hermesOnline ? 'text-emerald-400' : 'text-red-400'}`}>● {vitals.hermesOnline ? 'LIVE' : 'OFFLINE'}</span>
             </span>
           )}
         >
@@ -227,8 +232,10 @@ export default function WarRoom() {
             <TaskThroughput tasks={hermesTasks} nowMs={nowMs} />
           ) : taskView === 'burn' ? (
             <BacklogBurndown tasks={hermesTasks} nowMs={nowMs} />
-          ) : (
+          ) : taskView === 'sla' ? (
             <CycleTimeSLA tasks={hermesTasks} nowMs={nowMs} />
+          ) : (
+            <AgingWip tasks={hermesTasks} nowMs={nowMs} />
           )}
         </Panel>
 

@@ -2,7 +2,7 @@
 //
 // The topbar + War Room + the task drawers have grown a fair number of keyboard
 // shortcuts and one-glyph affordances (⌘K palette, ⌘F task search, DIAG, the 🔔
-// notification center, ⊞ dependency map, ▶ live log tail, the STATUS/FLOW/BURN/SLA
+// notification center, ⊞ dependency map, ▶ live log tail, the STATUS/FLOW/BURN/SLA/AGE
 // & LOAD/PERF toggles…). This is the one-stop legend for all of them.
 //
 // Opens on a bare "?" (Shift+/) from anywhere except a text field, or from the
@@ -49,8 +49,9 @@ const GROUPS: Group[] = [
   {
     title: 'War Room',
     items: [
-      { keys: ['STATUS', 'FLOW', 'BURN', 'SLA'], label: 'Task panel: status ↔ throughput ↔ backlog burn-down ↔ cycle/lead-time SLA' },
+      { keys: ['STATUS', 'FLOW', 'BURN', 'SLA', 'AGE'], label: 'Task panel: status ↔ throughput ↔ backlog burn-down ↔ cycle/lead SLA ↔ aging WIP' },
       { keys: ['LEAD', 'CYCLE'], label: 'SLA view: lead time (created→done) ↔ cycle time (started→done)' },
+      { keys: ['AGE'], label: 'Aging WIP: open-task age heatmap — click an oldest-open row to open it in Operations' },
       { keys: ['12H', '24H', '48H'], label: 'Trailing window (in FLOW / BURN / SLA view)' },
       { keys: ['LOAD', 'PERF'], label: 'Agent panel: live load ↔ performance leaderboard' },
       { keys: ['Agent', 'Done', '…'], label: 'Click a leaderboard column header to sort by it' },
