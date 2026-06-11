@@ -1,8 +1,12 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", system-ui, sans-serif;
-  
+  /* Brand type system — exactly two families, app-wide (same pair the Ghost
+     Network deck uses; loaded in index.html). "Inter" was declared here before
+     but never loaded, so the app silently fell back to Segoe UI. */
+  --font-sans: "Chakra Petch", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+
   --color-brand-start: #f64e6e;
   --color-brand-end: #ff795e;
   
