@@ -105,14 +105,25 @@ export function Stat({ label, value, sub, tone = 'white', big = false }: { label
   );
 }
 
-// Scrolling log tail
+// Scrolling log tail — auto-follows the newest line, but stays scrollable so
+// earlier history can be read back. Previously `overflow-hidden` clipped any
+// line above the fold with no way to reach it; now it scrolls, and the
+// auto-follow only re-pins to the bottom when the reader is already parked there
+// (so a poll of fresh lines doesn't yank someone scrolling up — mirrors the
+// WorkerLogStream tail pattern).
 export function LogTail({ lines, height = 180 }: { lines: { t: string; tag?: string; color?: string; msg: string }[]; height?: number }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef(true);
+  const onScroll = () => {
+    const el = containerRef.current;
+    if (el) pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+  };
   useEffect(() => {
-    if (containerRef.current) containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    const el = containerRef.current;
+    if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
   }, [lines]);
   return (
-    <div ref={containerRef} className="font-mono text-[10px] leading-[1.5] overflow-hidden relative" style={{ height }}>
+    <div ref={containerRef} onScroll={onScroll} className="font-mono text-[10px] leading-[1.5] overflow-y-auto overflow-x-hidden relative" style={{ height }}>
       {lines.map((l, i) => (
         <div key={i} className="flex gap-2">
           <span className="text-[#363636] shrink-0">{l.t}</span>
