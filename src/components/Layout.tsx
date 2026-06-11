@@ -195,8 +195,11 @@ export default function Layout() {
 
       <div className="flex-1 flex flex-col min-w-0 relative">
         {/* TopBar */}
+        {/* relative z-40: backdrop-blur creates a stacking context, which traps
+            the NotifyCenter dropdown's z-index inside the header — without
+            lifting the header itself, page content paints over the dropdown. */}
         <header
-          className="h-[40px] shrink-0 border-b border-white/[0.07] flex items-center px-4 gap-6 text-[10px] font-mono backdrop-blur-md"
+          className="relative z-40 h-[40px] shrink-0 border-b border-white/[0.07] flex items-center px-4 gap-6 text-[10px] font-mono backdrop-blur-md"
           style={{ background: 'linear-gradient(180deg, rgba(13,13,16,0.92), rgba(7,7,9,0.88))', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 24px -18px rgba(0,0,0,0.9)' }}>
           <button onClick={() => setMobileOpen(true)} className="lg:hidden text-[#b8b8b8] hover:text-white mr-2">☰</button>
           <button onClick={() => setCollapsed((c) => !c)} title={collapsed ? 'Show navigation' : 'Hide navigation'} className="hidden lg:inline-flex items-center text-[#b8b8b8] hover:text-white mr-1">☰</button>
