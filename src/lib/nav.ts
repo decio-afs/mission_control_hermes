@@ -22,6 +22,8 @@ export const MODULES: NavModule[] = [
   { id: 'arsenal',    path: '/arsenal',    label: 'Arsenal',         short: 'Arsenal',  num: '07' },
   { id: 'uplink',     path: '/uplink',     label: 'Uplink',          short: 'Uplink',   num: '08' },
   { id: 'systems',    path: '/systems',    label: 'Systems',         short: 'Systems',  num: '09' },
+  // Pipeline command — self-healing, bug-hunter, patching, Higgsfield.
+  { id: 'pipelines',  path: '/pipelines',  label: 'Pipelines',       short: 'Pipes',    num: '10' },
   // Consolidated design showcase (Intel Deck, Workflow Builder, Archives, Broadcast Uplink).
-  { id: 'designlab',  path: '/design-lab', label: 'Design Lab',      short: 'Lab',      num: '10' },
+  { id: 'designlab',  path: '/design-lab', label: 'Design Lab',      short: 'Lab',      num: '11' },
 ];

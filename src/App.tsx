@@ -11,6 +11,7 @@ import Arsenal from './pages/Arsenal';
 import Uplink from './pages/Uplink';
 import Systems from './pages/Systems';
 import DesignLab from './pages/DesignLab';
+import Pipelines from './pages/Pipelines';
 
 function App() {
   return (
@@ -31,6 +32,7 @@ function App() {
           <Route path="uplink" element={<Uplink />} />
           <Route path="systems" element={<Systems />} />
           {/* Design showcase modules (static demo data), consolidated under one tab */}
+          <Route path="pipelines" element={<Pipelines />} />
           <Route path="design-lab" element={<DesignLab />} />
           {/* Legacy redirects */}
           <Route path="intelligence" element={<Navigate to="/design-lab?tab=intel" replace />} />

@@ -2917,6 +2917,69 @@ def set_model(payload: SetModelPayload):
 
 
 # ---------------------------------------------------------------------------
+# Pipeline JSON endpoints
+# ---------------------------------------------------------------------------
+
+DATA_DIR = Path(__file__).parent / ".hermes" / "data"
+
+
+def _read_pipeline_json(name: str) -> dict:
+    path = DATA_DIR / f"{name}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Pipeline output not found: {name}.json")
+    try:
+        return json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"Corrupt JSON in {name}.json: {e}")
+
+
+@app.get("/api/pipelines/self_healing")
+def get_self_healing():
+    """Return the latest self_healing.json output."""
+    return _read_pipeline_json("self_healing")
+
+
+@app.get("/api/pipelines/bug_hunter")
+def get_bug_hunter():
+    """Return the latest bug_hunter.json output."""
+    return _read_pipeline_json("bug_hunter")
+
+
+@app.get("/api/pipelines/patching")
+def get_patching():
+    """Return the latest patching.json output."""
+    return _read_pipeline_json("patching")
+
+
+@app.get("/api/pipelines")
+def list_pipelines():
+    """List available pipeline JSON outputs."""
+    out = []
+    for name in ("self_healing", "bug_hunter", "patching"):
+        path = DATA_DIR / f"{name}.json"
+        out.append({
+            "name": name,
+            "exists": path.exists(),
+            "mtime": path.stat().st_mtime if path.exists() else None,
+            "endpoint": f"/api/pipelines/{name}",
+        })
+    return {"pipelines": out}
+
+
+@app.get("/api/pipelines/higgsfield/jobs")
+def get_higgsfield_jobs():
+    """Return Higgsfield animation jobs — placeholder until real MCP integration."""
+    # TODO: wire to actual Higgsfield MCP when available
+    jobs = [
+        {"id": "hf-001", "title": "Neon City Loop", "status": "done", "progress": 100, "created_at": "2026-06-14T10:00:00Z"},
+        {"id": "hf-002", "title": "Cyberpunk Intro Sequence", "status": "running", "progress": 67, "created_at": "2026-06-14T14:30:00Z"},
+        {"id": "hf-003", "title": "DA Agency Reel", "status": "queued", "progress": 0, "created_at": "2026-06-14T16:00:00Z"},
+    ]
+    running = sum(1 for j in jobs if j["status"] == "running")
+    return {"jobs": jobs, "total": len(jobs), "running": running}
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 

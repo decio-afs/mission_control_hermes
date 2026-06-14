@@ -1042,3 +1042,63 @@ export async function getModels(): Promise<ModelsResponse> {
 export async function setModel(model: string, provider: string, base_url?: string | null): Promise<void> {
   await bridge.put('/api/mc/models', { model, provider, base_url: base_url ?? null });
 }
+
+// ---------------------------------------------------------------------------
+// Pipeline dashboards — self-healing, bug-hunter, patching, Higgsfield
+// ---------------------------------------------------------------------------
+export interface SelfHealingStatus {
+  checked_at: string;
+  all_ok: boolean;
+  checks: { name: string; ok: boolean; detail?: string }[];
+  actions_taken: string[];
+}
+
+export interface BugHunterReport {
+  scanned_at: string;
+  issues_found: number;
+  issues: { severity: 'high' | 'medium' | 'low'; file: string; line?: number; message: string; category: string }[];
+  kanban_tasks_created: number;
+}
+
+export interface PatchStatus {
+  checked_at: string;
+  patches_applied: number;
+  patches_failed: number;
+  npm_audit_vulnerabilities: number;
+  python_outdated: number;
+  all_clean: boolean;
+}
+
+export interface HiggsfieldJob {
+  id: string;
+  title: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  progress: number;
+  created_at: string;
+}
+
+export interface HiggsfieldJobs {
+  jobs: HiggsfieldJob[];
+  total: number;
+  running: number;
+}
+
+export async function getSelfHealing(): Promise<SelfHealingStatus> {
+  const { data } = await bridge.get('/api/pipelines/self_healing');
+  return data;
+}
+
+export async function getBugHunter(): Promise<BugHunterReport> {
+  const { data } = await bridge.get('/api/pipelines/bug_hunter');
+  return data;
+}
+
+export async function getPatching(): Promise<PatchStatus> {
+  const { data } = await bridge.get('/api/pipelines/patching');
+  return data;
+}
+
+export async function getHiggsfieldJobs(): Promise<HiggsfieldJobs> {
+  const { data } = await bridge.get('/api/pipelines/higgsfield/jobs');
+  return data;
+}
