@@ -44,3 +44,6 @@ Thumbs.db
 # Mission Control runtime data (bridge-managed local stores)
 .hermes/data/
 .hermes/cli-inventory.txt
+
+# graphify knowledge graph output
+graphify-out/
